@@ -10,20 +10,33 @@ movie_api, tv_api = Movie(), TV()
 discover_api, trending_api = Discover(), Trending()
 search_api = Search()
 
-# --- 2. PAGE SETUP & BACKGROUND ---
+# --- 2. PAGE SETUP & DYNAMIC BACKGROUND ---
 st.set_page_config(page_title="CinemaPro India", layout="wide", page_icon="🎬")
 
 def set_bg():
+    # Using the newly generated 3D animated video as a background
+    video_url = "http://googleusercontent.com/generated_video_content/10641277448723540926"
     st.markdown(f"""
         <style>
         .stApp {{
-            background: linear-gradient(rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0.85)), 
-                        url("https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?q=80&w=2070&auto=format&fit=crop");
-            background-attachment: fixed;
-            background-size: cover;
+            background: none;
+        }}
+        #bg-video {{
+            position: fixed;
+            right: 0;
+            bottom: 0;
+            min-width: 100%;
+            min-height: 100%;
+            z-index: -1;
+            filter: brightness(30%);
+            object-fit: cover;
         }}
         .ott-link {{ background-color: #28a745; color: white !important; padding: 10px; border-radius: 8px; text-decoration: none; display: block; text-align: center; font-weight: bold; }}
+        .tmdb-attribution {{ font-size: 0.8em; color: #ccc; margin-top: 20px; }}
         </style>
+        <video autoplay muted loop id="bg-video">
+            <source src="{video_url}" type="video/mp4">
+        </video>
         """, unsafe_allow_html=True)
 
 set_bg()
@@ -48,6 +61,15 @@ else:
     # --- 4. MAIN APP CONTENT ---
     st.sidebar.title(f"👤 {st.session_state.u_name}")
     is_adult = st.session_state.u_age >= 18
+    
+    # TMDB Attribution in Sidebar
+    st.sidebar.markdown("""
+        <div class='tmdb-attribution'>
+            <img src="https://www.themoviedb.org/assets/2/v4/logos/v2/blue_square_1-5bdc75aae11efab7ee0aa2105058f1092ec95c6453055f77118921d84012f55a.svg" width="50"><br>
+            This product uses the TMDB API but is not endorsed or certified by TMDB.
+        </div>
+    """, unsafe_allow_html=True)
+
     if st.sidebar.button("Log Out"):
         st.session_state.logged_in = False
         st.rerun()
@@ -102,10 +124,8 @@ else:
     if st.button("Find Content") or search_query:
         results = []
         if search_query:
-            # Multi-search handles people and movies together
             search_data = search_api.multi(search_query)
             for res in search_data:
-                # If result is a person, get their known movies
                 if get_safe_val(res, 'media_type') == 'person':
                     results.extend(get_safe_val(res, 'known_for', []))
                 else:
