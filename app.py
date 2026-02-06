@@ -89,24 +89,44 @@ for item in trending_results:
             count += 1
 st.divider()
 
-# --- 6. SEARCH & GENRE SELECTION ---
+# --- 6. SEARCH, GENRE & MOOD SELECTION ---
 st.header("🎯 Explore Cinema")
 search_query = st.text_input("🔍 Search for a movie or TV show...", placeholder="e.g. RRR, Stranger Things")
 
-# Fetch dynamic genres from API
-genre_dict = get_genres(media_type)
-selected_genres = st.multiselect("📂 Select Genres", list(genre_dict.keys()))
+col1, col2 = st.columns(2)
+
+with col1:
+    # Fetch dynamic genres from API
+    genre_dict = get_genres(media_type)
+    selected_genres = st.multiselect("📂 Select Genres", list(genre_dict.keys()))
+
+with col2:
+    # --- MOOD BASED SELECTION ---
+    mood_map = {
+        "Happy (Comedy/Animation)": [35, 16],
+        "Sad (Drama/Romance)": [18, 10749],
+        "Excited (Action/Adventure)": [28, 12],
+        "Scared (Horror/Thriller)": [27, 53],
+        "Bored (Mystery/Sci-Fi)": [96, 878],
+        "Inspired (History/Documentary)": [36, 99]
+    }
+    selected_mood = st.selectbox("🎭 What is your mood?", ["None"] + list(mood_map.keys()))
 
 if st.button("Generate Recommendations") or search_query:
     today = datetime.now().strftime('%Y-%m-%d')
     results = []
     
     if search_query:
-        # Global Search logic
         results = movie_api.search(search_query) if media_type == "Movies" else tv_api.search(search_query)
     else:
-        # Genre-wise discovery logic
+        # Combine manual genre selection with Mood-based genre IDs
         genre_ids = [genre_dict[g] for g in selected_genres]
+        if selected_mood != "None":
+            genre_ids.extend(mood_map[selected_mood])
+        
+        # Remove duplicates
+        genre_ids = list(set(genre_ids))
+
         for p in range(1, 4):
             params = {
                 'with_genres': ",".join(map(str, genre_ids)) if genre_ids else None,
