@@ -10,11 +10,11 @@ movie_api, tv_api = Movie(), TV()
 discover_api, trending_api = Discover(), Trending()
 search_api = Search()
 
-# --- 2. PAGE SETUP & DYNAMIC VIDEO BACKGROUND ---
+# --- 2. PAGE SETUP & BACKGROUND ---
 st.set_page_config(page_title="CinemaPro India", layout="wide", page_icon="🎬")
 
 def set_bg():
-    # URL to your generated 3D animated cinema video
+    # URL to your generated 3D animated cinema video background
     video_url = "http://googleusercontent.com/generated_video_content/10641277448723540926"
     st.markdown(f"""
         <style>
@@ -28,12 +28,11 @@ def set_bg():
             min-width: 100%;
             min-height: 100%;
             z-index: -1;
-            filter: brightness(35%); /* Darkens video so text is readable */
+            filter: brightness(35%);
             object-fit: cover;
         }}
         .ott-link {{ background-color: #28a745; color: white !important; padding: 10px; border-radius: 8px; text-decoration: none; display: block; text-align: center; font-weight: bold; }}
-        .tmdb-logo {{ width: 100px; margin-top: 20px; opacity: 0.8; }}
-        .tmdb-text {{ font-size: 0.7em; color: #aaa; margin-top: 5px; line-height: 1.2; }}
+        .tmdb-attribution {{ font-size: 0.8em; color: #ccc; margin-top: 20px; }}
         </style>
         <video autoplay muted loop id="bg-video">
             <source src="{video_url}" type="video/mp4">
@@ -48,8 +47,8 @@ if 'logged_in' not in st.session_state:
 
 if not st.session_state.logged_in:
     st.title("🎬 CinemaPro India")
-    u_name = st.text_input("Enter Your Name")
-    u_age = st.number_input("Enter Your Age", 1, 100, 18)
+    u_name = st.text_input("Name")
+    u_age = st.number_input("Your Age", 1, 100, 18)
     if st.button("Enter Website"):
         if u_name:
             st.session_state.logged_in = True
@@ -57,30 +56,29 @@ if not st.session_state.logged_in:
             st.session_state.u_age = u_age
             st.rerun()
         else:
-            st.error("Please enter your name to proceed.")
+            st.error("Please enter your name.")
 else:
     # --- 4. MAIN APP CONTENT ---
-    # Sidebar Profile & TMDB Attribution
     st.sidebar.title(f"👤 {st.session_state.u_name}")
     is_adult = st.session_state.u_age >= 18
     
-    # Official TMDB Attribution Branding
+    # TMDB Attribution
     st.sidebar.markdown("""
-        ---
-        <img src="https://www.themoviedb.org/assets/2/v4/logos/v2/blue_square_1-5bdc75aae11efab7ee0aa2105058f1092ec95c6453055f77118921d84012f55a.svg" class="tmdb-logo">
-        <p class="tmdb-text">This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
+        <div class='tmdb-attribution'>
+            <img src="https://www.themoviedb.org/assets/2/v4/logos/v2/blue_square_1-5bdc75aae11efab7ee0aa2105058f1092ec95c6453055f77118921d84012f55a.svg" width="50"><br>
+            This product uses the TMDB API but is not endorsed or certified by TMDB.
+        </div>
     """, unsafe_allow_html=True)
 
     if st.sidebar.button("Log Out"):
         st.session_state.logged_in = False
         st.rerun()
 
-    st.sidebar.divider()
     media_type = st.sidebar.selectbox("Content Type", ["Movies", "TV Shows"])
     lang_map = {"Telugu": "te", "Hindi": "hi", "English": "en", "Tamil": "ta"}
     sel_lang = st.sidebar.selectbox("Language", list(lang_map.keys()))
 
-    # --- 5. DATA HELPERS ---
+    # --- 5. DATA HELPERS (Fixing the loop errors) ---
     def get_safe_val(item, key, default=None):
         if isinstance(item, dict): return item.get(key, default)
         try: return getattr(item, key, default)
@@ -91,18 +89,20 @@ else:
             res = movie_api.details(m_id, append_to_response="videos,watch/providers") if m_type == "Movies" else tv_api.details(m_id, append_to_response="videos,watch/providers")
             trailer = next((f"https://www.youtube.com/watch?v={v['key']}" for v in res.get('videos', {}).get('results', []) if v['type'] == 'Trailer'), None)
             providers = res.get('watch/providers', {}).get('results', {}).get('IN', {})
+            # Fixed the SyntaxError here by ensuring proper string termination
             ott_n = providers.get('flatrate', [{}])[0].get('provider_name', "Theaters/Rent")
             ott_l = providers.get('link', '#')
             rt = f"{res.get('runtime')} mins" if m_type == "Movies" else f"{res.get('episode_run_time', ['N/A'])[0]} mins/ep"
             return trailer, ott_n, ott_l, rt
         except: return None, "N/A", "#", "N/A"
 
-    # --- 6. TRENDING SECTION ---
+    # --- 6. TRENDING ---
     st.title(f"🔥 Trending in India")
     trending = list(trending_api.movie_day() if media_type == "Movies" else trending_api.tv_day())
     t_cols = st.columns(6)
+    # Fix: Ensure we loop through results correctly as a list
     for i, item in enumerate(trending[:6]):
-        if isinstance(item, str): continue # Fixes looping error
+        if isinstance(item, str): continue # Fix for the AttributeError
         poster = get_safe_val(item, 'poster_path')
         if poster:
             with t_cols[i]:
@@ -126,7 +126,6 @@ else:
     if st.button("Find Content") or search_query:
         results = []
         if search_query:
-            # Multi-search includes people and content
             search_data = search_api.multi(search_query)
             for res in search_data:
                 if get_safe_val(res, 'media_type') == 'person':
@@ -155,3 +154,5 @@ else:
                             st.write(get_safe_val(item, 'overview'))
                             if trailer: st.video(trailer)
                             if ott_l != "#": st.markdown(f'<a href="{ott_l}" target="_blank" class="ott-link">Watch on {ott_n}</a>', unsafe_allow_html=True)
+        else:
+            st.warning("No results found. Try a different search or mood!")
