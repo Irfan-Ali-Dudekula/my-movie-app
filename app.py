@@ -21,12 +21,6 @@ def set_ui_styles():
             background-attachment: fixed;
             background-size: cover;
         }}
-        .login-card {{
-            background-color: rgba(255, 255, 255, 0.1);
-            padding: 30px;
-            border-radius: 15px;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-        }}
         .ott-link {{ background-color: #28a745; color: white !important; padding: 10px; border-radius: 8px; text-decoration: none; display: block; text-align: center; font-weight: bold; }}
         </style>
         """, unsafe_allow_html=True)
@@ -39,7 +33,6 @@ if 'logged_in' not in st.session_state:
 
 if not st.session_state.logged_in:
     st.title("🎬 CinemaPro India")
-    
     tab1, tab2 = st.tabs(["Login", "Register / Forgot Password"])
     
     with tab1:
@@ -54,14 +47,11 @@ if not st.session_state.logged_in:
                 st.rerun()
             else:
                 st.error("Please enter your name.")
-                
     with tab2:
-        st.info("New here? Registration and Password Recovery are coming soon in the next update!")
-        st.button("Request Access", disabled=True)
+        st.info("New here? Registration and Password Recovery are coming soon!")
 
 else:
     # --- 4. MAIN WEBSITE CONTENT ---
-    # Sidebar Profile
     st.sidebar.title(f"👤 {st.session_state.user_name}")
     st.sidebar.write(f"Access Level: {'Adult' if st.session_state.user_age >= 18 else 'Standard'}")
     is_adult = st.session_state.user_age >= 18
@@ -75,15 +65,10 @@ else:
     lang_map = {"Telugu": "te", "Hindi": "hi", "English": "en", "Tamil": "ta"}
     sel_lang = st.sidebar.selectbox("Language", list(lang_map.keys()))
 
-    # --- 5. DATA HELPERS (Loop & Attribute Fixes) ---
+    # --- 5. DATA HELPERS ---
     def get_safe_val(item, key, default=None):
         if isinstance(item, dict): return item.get(key, default)
         return getattr(item, key, default)
-
-    @st.cache_data(ttl=3600)
-    def get_genres(m_type):
-        g_list = genre_api.movie_list() if m_type == "Movies" else genre_api.tv_list()
-        return {g['name']: g['id'] for g in g_list}
 
     def get_detailed_info(m_id, m_type):
         try:
@@ -102,7 +87,6 @@ else:
     t_cols = st.columns(6)
     count = 0
     for item in trending:
-        # Loop safety check
         if count >= 6 or isinstance(item, str): continue
         poster = get_safe_val(item, 'poster_path')
         if poster:
@@ -113,31 +97,33 @@ else:
 
     st.divider()
 
-    # --- 7. EXPLORE: SEARCH & MOOD ---
+    # --- 7. EXPLORE: SEARCH & MOOD ONLY ---
     st.header("🎯 Personalized Recommendations")
+    
+    # Simple Layout without Genre list
     search_query = st.text_input("🔍 Search by title...", placeholder="e.g. Baahubali")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        genre_dict = get_genres(media_type)
-        selected_genres = st.multiselect("📂 Select Genres", list(genre_dict.keys()))
-    with col2:
-        mood_map = {
-            "Happy (Comedy/Animation)": [35, 16],
-            "Sad (Drama/Romance)": [18, 10749],
-            "Excited (Action/Adventure)": [28, 12],
-            "Scared (Horror/Thriller)": [27, 53]
-        }
-        selected_mood = st.selectbox("🎭 Mood Selection", ["None"] + list(mood_map.keys()))
+    
+    mood_map = {
+        "Happy (Comedy/Animation)": [35, 16],
+        "Sad (Drama/Romance)": [18, 10749],
+        "Excited (Action/Adventure)": [28, 12],
+        "Scared (Horror/Thriller)": [27, 53]
+    }
+    selected_mood = st.selectbox("🎭 Select your Mood for Suggestions", ["None"] + list(mood_map.keys()))
 
     if st.button("Generate My List") or search_query:
         results = []
         if search_query:
             results = movie_api.search(search_query) if media_type == "Movies" else tv_api.search(search_query)
         else:
-            g_ids = [genre_dict[g] for g in selected_genres]
-            if selected_mood != "None": g_ids.extend(mood_map[selected_mood])
-            results = discover_api.discover_movies({'with_genres': ",".join(map(str, list(set(g_ids)))), 'with_original_language': lang_map[sel_lang]}) if media_type == "Movies" else discover_api.discover_tv_shows({'with_genres': ",".join(map(str, list(set(g_ids)))), 'with_original_language': lang_map[sel_lang]})
+            mood_ids = mood_map.get(selected_mood, [])
+            results = discover_api.discover_movies({
+                'with_genres': ",".join(map(str, mood_ids)) if mood_ids else None, 
+                'with_original_language': lang_map[sel_lang]
+            }) if media_type == "Movies" else discover_api.discover_tv_shows({
+                'with_genres': ",".join(map(str, mood_ids)) if mood_ids else None, 
+                'with_original_language': lang_map[sel_lang]
+            })
 
         if results:
             main_cols = st.columns(4)
