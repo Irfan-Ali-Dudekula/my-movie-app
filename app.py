@@ -9,52 +9,61 @@ tmdb.language = 'en'
 movie_api, tv_api = Movie(), TV()
 discover_api, trending_api, genre_api = Discover(), Trending(), Genre()
 
-# --- 2. PAGE SETUP & BACKGROUND ---
+# --- 2. PAGE SETUP & STYLING ---
 st.set_page_config(page_title="CinemaPro India", layout="wide", page_icon="🎬")
 
-def set_bg():
+def set_ui_styles():
     st.markdown(f"""
         <style>
         .stApp {{
-            background: linear-gradient(rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.8)), 
+            background: linear-gradient(rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0.85)), 
                         url("https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?q=80&w=2070&auto=format&fit=crop");
             background-attachment: fixed;
             background-size: cover;
+        }}
+        .login-card {{
+            background-color: rgba(255, 255, 255, 0.1);
+            padding: 30px;
+            border-radius: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
         }}
         .ott-link {{ background-color: #28a745; color: white !important; padding: 10px; border-radius: 8px; text-decoration: none; display: block; text-align: center; font-weight: bold; }}
         </style>
         """, unsafe_allow_html=True)
 
-set_bg()
+set_ui_styles()
 
-# --- 3. LOGIN PAGE LOGIC ---
+# --- 3. LOGIN & REGISTRATION GATE ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 
 if not st.session_state.logged_in:
-    # --- LOGIN INTERFACE ---
-    st.title("🎬 Welcome to CinemaPro India")
-    st.subheader("Please enter your details to continue")
+    st.title("🎬 CinemaPro India")
     
-    with st.container():
-        user_name = st.text_input("Enter Your Name")
-        user_age = st.number_input("Enter Your Age", min_value=1, max_value=100, value=18)
-        
-        if st.button("Enter Website"):
-            if user_name:
+    tab1, tab2 = st.tabs(["Login", "Register / Forgot Password"])
+    
+    with tab1:
+        st.write("### Welcome Back")
+        u_name = st.text_input("Username / Name")
+        u_age = st.number_input("Your Age", 1, 100, 18)
+        if st.button("Sign In"):
+            if u_name:
                 st.session_state.logged_in = True
-                st.session_state.user_name = user_name
-                st.session_state.user_age = user_age
-                st.rerun() # Refresh to show the main app
+                st.session_state.user_name = u_name
+                st.session_state.user_age = u_age
+                st.rerun()
             else:
-                st.error("Please enter your name to proceed.")
+                st.error("Please enter your name.")
+                
+    with tab2:
+        st.info("New here? Registration and Password Recovery are coming soon in the next update!")
+        st.button("Request Access", disabled=True)
+
 else:
     # --- 4. MAIN WEBSITE CONTENT ---
-    # This part only runs AFTER the user logs in
-    
     # Sidebar Profile
     st.sidebar.title(f"👤 {st.session_state.user_name}")
-    st.sidebar.write(f"Age: {st.session_state.user_age}")
+    st.sidebar.write(f"Access Level: {'Adult' if st.session_state.user_age >= 18 else 'Standard'}")
     is_adult = st.session_state.user_age >= 18
     
     if st.sidebar.button("Log Out"):
@@ -66,7 +75,7 @@ else:
     lang_map = {"Telugu": "te", "Hindi": "hi", "English": "en", "Tamil": "ta"}
     sel_lang = st.sidebar.selectbox("Language", list(lang_map.keys()))
 
-    # --- 5. DATA HELPERS ---
+    # --- 5. DATA HELPERS (Loop & Attribute Fixes) ---
     def get_safe_val(item, key, default=None):
         if isinstance(item, dict): return item.get(key, default)
         return getattr(item, key, default)
@@ -88,11 +97,12 @@ else:
         except: return None, "N/A", "#", "N/A"
 
     # --- 6. TRENDING SECTION ---
-    st.title(f"🔥 Trending for {st.session_state.user_name}")
+    st.title(f"🔥 Trending in India")
     trending = trending_api.movie_day() if media_type == "Movies" else trending_api.tv_day()
     t_cols = st.columns(6)
     count = 0
     for item in trending:
+        # Loop safety check
         if count >= 6 or isinstance(item, str): continue
         poster = get_safe_val(item, 'poster_path')
         if poster:
@@ -104,8 +114,8 @@ else:
     st.divider()
 
     # --- 7. EXPLORE: SEARCH & MOOD ---
-    st.header("🎯 Discover Movies")
-    search_query = st.text_input("🔍 Search by title...")
+    st.header("🎯 Personalized Recommendations")
+    search_query = st.text_input("🔍 Search by title...", placeholder="e.g. Baahubali")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -120,7 +130,7 @@ else:
         }
         selected_mood = st.selectbox("🎭 Mood Selection", ["None"] + list(mood_map.keys()))
 
-    if st.button("Generate Recommendations") or search_query:
+    if st.button("Generate My List") or search_query:
         results = []
         if search_query:
             results = movie_api.search(search_query) if media_type == "Movies" else tv_api.search(search_query)
