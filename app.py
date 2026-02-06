@@ -15,9 +15,7 @@ search_api = Search()
 st.set_page_config(page_title="CinemaPro India", layout="wide", page_icon="🎬")
 
 def set_bg():
-    # Primary: Your 3D animated video
     video_url = "http://googleusercontent.com/generated_video_content/10641277448723540926"
-    # Fallback: High-quality cinema image if video fails to load
     fallback_img = "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?q=80&w=2070"
     
     st.markdown(f"""
@@ -28,14 +26,9 @@ def set_bg():
             background-attachment: fixed;
         }}
         #bg-video {{
-            position: fixed;
-            right: 0;
-            bottom: 0;
-            min-width: 100%;
-            min-height: 100%;
-            z-index: -1;
-            filter: brightness(30%);
-            object-fit: cover;
+            position: fixed; right: 0; bottom: 0;
+            min-width: 100%; min-height: 100%;
+            z-index: -1; filter: brightness(30%); object-fit: cover;
         }}
         .ott-link {{ background-color: #28a745; color: white !important; padding: 10px; border-radius: 8px; text-decoration: none; display: block; text-align: center; font-weight: bold; }}
         .tmdb-attribution {{ font-size: 0.8em; color: #ccc; margin-top: 20px; border-top: 1px solid #444; padding-top: 10px; }}
@@ -68,7 +61,7 @@ else:
     st.sidebar.title(f"👤 {st.session_state.u_name}")
     is_adult = st.session_state.u_age >= 18
     
-    # Check API Status
+    # API Status Diagnostic
     try:
         response = requests.get(f"https://api.themoviedb.org/3/configuration?api_key={tmdb.api_key}")
         if response.status_code == 200:
@@ -150,18 +143,36 @@ else:
                     results.append(res)
         else:
             mood_ids = mood_map.get(selected_mood, [])
-            params = {'with_genres': ",".join(map(str, mood_ids)) if mood_ids else None, 'with_original_language': lang_map[sel_lang]}
-            results = list(discover_api.discover_movies(params) if media_type == "Movies" else discover_api.discover_tv_shows(params))
+            # FIX: Use "|" (OR) instead of "," (AND) to find ANY of the mood genres
+            genre_string = "|".join(map(str, mood_ids)) if mood_ids else None
+            params = {
+                'with_genres': genre_string, 
+                'with_original_language': lang_map[sel_lang],
+                'sort_by': 'popularity.desc'
+            }
+            
+            if media_type == "Movies":
+                results = list(discover_api.discover_movies(params))
+            else:
+                results = list(discover_api.discover_tv_shows(params))
+
+            # FALLBACK: If zero results found, show popular content in that language
+            if not results:
+                st.warning(f"No exact matches for '{selected_mood}' found in {sel_lang}. Showing general hits!")
+                params.pop('with_genres', None)
+                results = list(discover_api.discover_tv_shows(params)) if media_type == "TV Shows" else list(discover_api.discover_movies(params))
 
         if results:
             main_cols = st.columns(4)
-            for i, item in enumerate(list(results)[:20]):
+            processed_count = 0
+            for item in list(results):
+                if processed_count >= 20: break
                 if isinstance(item, str): continue
                 if not is_adult and get_safe_val(item, 'adult', False): continue
                 
                 poster = get_safe_val(item, 'poster_path')
                 if poster:
-                    with main_cols[i % 4]:
+                    with main_cols[processed_count % 4]:
                         st.image(f"https://image.tmdb.org/t/p/w500{poster}")
                         st.subheader(get_safe_val(item, 'title', get_safe_val(item, 'name', '')))
                         with st.expander("Details & Watch"):
@@ -170,3 +181,4 @@ else:
                             st.write(get_safe_val(item, 'overview'))
                             if trailer: st.video(trailer)
                             if ott_l != "#": st.markdown(f'<a href="{ott_l}" target="_blank" class="ott-link">Watch on {ott_n}</a>', unsafe_allow_html=True)
+                    processed_count += 1
