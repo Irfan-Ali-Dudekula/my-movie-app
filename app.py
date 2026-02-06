@@ -23,6 +23,7 @@ def set_bg():
             background-size: cover;
         }}
         .ott-link {{ background-color: #28a745; color: white !important; padding: 10px; border-radius: 8px; text-decoration: none; display: block; text-align: center; font-weight: bold; }}
+        .tmdb-attribution {{ font-size: 0.8em; color: #ccc; margin-top: 20px; border-top: 1px solid #444; padding-top: 10px; }}
         </style>
         """, unsafe_allow_html=True)
 
@@ -48,6 +49,16 @@ else:
     # --- 4. MAIN APP CONTENT ---
     st.sidebar.title(f"👤 {st.session_state.u_name}")
     is_adult = st.session_state.u_age >= 18
+    
+    # --- TMDB CREDITS SECTION ---
+    # This section fulfills the attribution requirement for using TMDB data
+    st.sidebar.markdown("""
+        <div class="tmdb-attribution">
+            <img src="https://www.themoviedb.org/assets/2/v4/logos/v2/blue_square_1-5bdc75aae11efab7ee0aa2105058f1092ec95c6453055f77118921d84012f55a.svg" width="60">
+            <p style='margin-top: 10px;'>This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
+        </div>
+    """, unsafe_allow_html=True)
+
     if st.sidebar.button("Log Out"):
         st.session_state.logged_in = False
         st.rerun()
@@ -102,10 +113,8 @@ else:
     if st.button("Find Content") or search_query:
         results = []
         if search_query:
-            # Multi-search handles people and movies together
             search_data = search_api.multi(search_query)
             for res in search_data:
-                # If result is a person, get their known movies
                 if get_safe_val(res, 'media_type') == 'person':
                     results.extend(get_safe_val(res, 'known_for', []))
                 else:
