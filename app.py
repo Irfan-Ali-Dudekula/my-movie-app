@@ -6,24 +6,36 @@ from datetime import datetime
 tmdb = TMDb()
 tmdb.api_key = 'a3ce43541791ff5e752a8e62ce0fcde2'
 tmdb.language = 'en'
-movie_api = Movie()
-tv_api = TV()
-discover_api = Discover()
-trending_api = Trending()
-genre_api = Genre()
+movie_api, tv_api = Movie(), TV()
+discover_api, trending_api, genre_api = Discover(), Trending(), Genre()
 
-# --- 2. PAGE SETUP & STYLING ---
+# --- 2. PAGE SETUP & CINEMATIC BACKGROUND ---
 st.set_page_config(page_title="CinemaPro India", layout="wide", page_icon="🎬")
 
-st.markdown("""
-    <style>
-    .adult-warning { color: white; background-color: #d9534f; font-weight: bold; padding: 10px; border-radius: 5px; text-align: center; margin: 10px 0; font-size: 0.8em; }
-    .info-label { color: #f0ad4e; font-weight: bold; font-size: 0.9em; margin-top: 5px; }
-    .ott-label { color: #00d4ff; font-weight: bold; font-size: 1em; margin-top: 10px; }
-    .ott-link { background-color: #28a745; color: white !important; padding: 12px 20px; border-radius: 8px; text-decoration: none; display: block; margin-top: 15px; font-weight: bold; width: 100%; text-align: center; border: 2px solid #1e7e34; }
-    .ott-link:hover { background-color: #218838; border-color: #1c7430; color: white !important; }
-    </style>
-    """, unsafe_allow_html=True)
+def set_bg_hack():
+    st.markdown(
+         f"""
+         <style>
+         .stApp {{
+             background: linear-gradient(rgba(0, 0, 0, 0.75), rgba(0, 0, 0, 0.75)), 
+                         url("https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?q=80&w=2070&auto=format&fit=crop");
+             background-attachment: fixed;
+             background-size: cover;
+         }}
+         [data-testid="stSidebar"] {{
+             background-color: rgba(20, 20, 20, 0.85);
+         }}
+         .adult-warning {{ color: white; background-color: #d9534f; font-weight: bold; padding: 10px; border-radius: 5px; text-align: center; margin: 10px 0; font-size: 0.8em; }}
+         .info-label {{ color: #f0ad4e; font-weight: bold; font-size: 0.9em; margin-top: 5px; }}
+         .ott-label {{ color: #00d4ff; font-weight: bold; font-size: 1em; margin-top: 10px; }}
+         .ott-link {{ background-color: #28a745; color: white !important; padding: 12px 20px; border-radius: 8px; text-decoration: none; display: block; margin-top: 15px; font-weight: bold; width: 100%; text-align: center; border: 2px solid #1e7e34; }}
+         .ott-link:hover {{ background-color: #218838; border-color: #1c7430; color: white !important; }}
+         </style>
+         """,
+         unsafe_allow_html=True
+     )
+
+set_bg_hack()
 
 # --- 3. SIDEBAR & FILTERS ---
 st.sidebar.title("👤 User Profile")
@@ -91,26 +103,22 @@ st.divider()
 
 # --- 6. SEARCH, GENRE & MOOD SELECTION ---
 st.header("🎯 Explore Cinema")
-search_query = st.text_input("🔍 Search for a movie or TV show...", placeholder="e.g. RRR, Stranger Things")
+search_query = st.text_input("🔍 Search by title...", placeholder="e.g. Kalki 2898 AD")
 
-col1, col2 = st.columns(2)
-
-with col1:
-    # Fetch dynamic genres from API
+m_col1, m_col2 = st.columns(2)
+with m_col1:
     genre_dict = get_genres(media_type)
     selected_genres = st.multiselect("📂 Select Genres", list(genre_dict.keys()))
 
-with col2:
-    # --- MOOD BASED SELECTION ---
+with m_col2:
     mood_map = {
         "Happy (Comedy/Animation)": [35, 16],
         "Sad (Drama/Romance)": [18, 10749],
         "Excited (Action/Adventure)": [28, 12],
         "Scared (Horror/Thriller)": [27, 53],
-        "Bored (Mystery/Sci-Fi)": [96, 878],
-        "Inspired (History/Documentary)": [36, 99]
+        "Bored (Mystery/Sci-Fi)": [96, 878]
     }
-    selected_mood = st.selectbox("🎭 What is your mood?", ["None"] + list(mood_map.keys()))
+    selected_mood = st.selectbox("🎭 Mood Based Recommendations", ["None"] + list(mood_map.keys()))
 
 if st.button("Generate Recommendations") or search_query:
     today = datetime.now().strftime('%Y-%m-%d')
@@ -119,12 +127,8 @@ if st.button("Generate Recommendations") or search_query:
     if search_query:
         results = movie_api.search(search_query) if media_type == "Movies" else tv_api.search(search_query)
     else:
-        # Combine manual genre selection with Mood-based genre IDs
         genre_ids = [genre_dict[g] for g in selected_genres]
-        if selected_mood != "None":
-            genre_ids.extend(mood_map[selected_mood])
-        
-        # Remove duplicates
+        if selected_mood != "None": genre_ids.extend(mood_map[selected_mood])
         genre_ids = list(set(genre_ids))
 
         for p in range(1, 4):
@@ -152,10 +156,10 @@ if st.button("Generate Recommendations") or search_query:
                     st.image(f"https://image.tmdb.org/t/p/w500{poster}")
                     st.subheader(get_safe_val(item, 'title', get_safe_val(item, 'name', '')))
                     if item_is_adult: st.markdown('<div class="adult-warning">🔞 ADULT CONTENT</div>', unsafe_allow_html=True)
-                    with st.expander("Details, Cast & Runtime"):
+                    with st.expander("Show Details & Runtime"):
                         trailer, ott_n, ott_l, cast, d_name, r_time = get_detailed_info(get_safe_val(item, 'id'), media_type)
                         st.markdown(f'<p class="info-label">⏳ Runtime: {r_time}</p>', unsafe_allow_html=True)
-                        st.write(f"🎬 **Directed by:** {d_name} | ⭐ **Rating:** {get_safe_val(item, 'vote_average')}/10")
+                        st.write(f"🎬 **Director:** {d_name} | ⭐ **Rating:** {get_safe_val(item, 'vote_average')}/10")
                         st.write(get_safe_val(item, 'overview'))
                         if cast:
                             st.write("🎭 **Top Cast:**")
@@ -168,4 +172,3 @@ if st.button("Generate Recommendations") or search_query:
                         st.markdown(f'<p class="ott-label">📺 Streaming on: {ott_n}</p>', unsafe_allow_html=True)
                         if ott_l != "#": st.markdown(f'<a href="{ott_l}" target="_blank" class="ott-link">▶️ WATCH NOW ON {ott_n.upper()}</a>', unsafe_allow_html=True)
                 processed += 1
-    else: st.warning("No results found. Try adjusting your filters or search query.")
