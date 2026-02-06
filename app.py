@@ -1,5 +1,5 @@
 import streamlit as st
-from tmdbv3api import TMDb, Movie, TV, Discover, Trending
+from tmdbv3api import TMDb, Movie, TV, Discover, Trending, Genre
 from datetime import datetime
 
 # --- 1. CONFIGURATION ---
@@ -10,6 +10,7 @@ movie_api = Movie()
 tv_api = TV()
 discover_api = Discover()
 trending_api = Trending()
+genre_api = Genre()
 
 # --- 2. PAGE SETUP & STYLING ---
 st.set_page_config(page_title="CinemaPro India", layout="wide", page_icon="🎬")
@@ -17,127 +18,134 @@ st.set_page_config(page_title="CinemaPro India", layout="wide", page_icon="🎬"
 st.markdown("""
     <style>
     .adult-warning { color: white; background-color: #d9534f; font-weight: bold; padding: 10px; border-radius: 5px; text-align: center; margin: 10px 0; font-size: 0.8em; }
-    .ott-link { background-color: #28a745; color: white !important; padding: 10px 20px; border-radius: 8px; text-decoration: none; display: inline-block; margin-top: 10px; font-weight: bold; width: 100%; text-align: center; }
-    .ott-link:hover { background-color: #218838; color: white !important; }
+    .info-label { color: #f0ad4e; font-weight: bold; font-size: 0.9em; margin-top: 5px; }
+    .ott-label { color: #00d4ff; font-weight: bold; font-size: 1em; margin-top: 10px; }
+    .ott-link { background-color: #28a745; color: white !important; padding: 12px 20px; border-radius: 8px; text-decoration: none; display: block; margin-top: 15px; font-weight: bold; width: 100%; text-align: center; border: 2px solid #1e7e34; }
+    .ott-link:hover { background-color: #218838; border-color: #1c7430; color: white !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. SIDEBAR & SAFETY ---
+# --- 3. SIDEBAR & FILTERS ---
 st.sidebar.title("👤 User Profile")
 name = st.sidebar.text_input("Enter Your Name", "Guest")
 age = st.sidebar.number_input("Enter Your Age", 1, 100, 18)
 is_adult = age >= 18
 
-if not is_adult:
-    st.sidebar.warning("🛡️ Safe Mode Active: Adult content and mature genres are hidden.")
-
 st.sidebar.divider()
 media_type = st.sidebar.selectbox("Content Type", ["Movies", "TV Shows"])
 lang_map = {"Telugu": "te", "Hindi": "hi", "English": "en", "Tamil": "ta", "Malayalam": "ml", "Kannada": "kn"}
 sel_lang = st.sidebar.selectbox("Preferred Language", list(lang_map.keys()))
+min_rating = st.sidebar.slider("Minimum Rating (⭐)", 0.0, 10.0, 5.0)
 
 # --- 4. DATA HELPER FUNCTIONS ---
 def get_safe_val(item, key, default=None):
-    """Safely get values whether item is a dict or an object."""
-    if isinstance(item, dict):
-        return item.get(key, default)
+    if isinstance(item, dict): return item.get(key, default)
     return getattr(item, key, default)
 
+@st.cache_data(ttl=3600)
+def get_genres(m_type):
+    g_list = genre_api.movie_list() if m_type == "Movies" else genre_api.tv_list()
+    return {g['name']: g['id'] for g in g_list}
+
 def get_detailed_info(m_id, m_type):
-    trailer, cast_list, director = None, [], "Unknown"
-    ott_name, ott_link = "Check Local Apps", "#"
+    trailer, cast_list, director, runtime = None, [], "Unknown", "N/A"
+    ott_name, ott_link = "Rent/Theaters", "#"
     try:
         res = movie_api.details(m_id, append_to_response="videos,credits,watch/providers") if m_type == "Movies" else tv_api.details(m_id, append_to_response="videos,credits,watch/providers")
-        
-        # Trailer
+        if m_type == "Movies":
+            r = res.get('runtime')
+            runtime = f"{r} mins" if r else "N/A"
+        else:
+            r = res.get('episode_run_time', [])
+            runtime = f"{r[0]} mins/ep" if r else "N/A"
         for v in res.get('videos', {}).get('results', []):
             if v['site'] == 'YouTube' and v['type'] == 'Trailer':
                 trailer = f"https://www.youtube.com/watch?v={v['key']}"
                 break
-        # Cast
         for actor in res.get('credits', {}).get('cast', [])[:5]:
             cast_list.append({"name": actor['name'], "pic": actor.get('profile_path')})
-        # Director
         crew = res.get('credits', {}).get('crew', [])
         director = next((p['name'] for p in crew if p['job'] in ['Director', 'Executive Producer']), "N/A")
-        # OTT
         providers = res.get('watch/providers', {}).get('results', {}).get('IN', {})
         if 'flatrate' in providers:
             ott_name = providers['flatrate'][0]['provider_name']
             ott_link = providers.get('link', '#')
     except: pass
-    return trailer, ott_name, ott_link, cast_list, director
+    return trailer, ott_name, ott_link, cast_list, director, runtime
 
 # --- 5. TRENDING SECTION ---
 st.title("🔥 Trending in India")
 trending_results = trending_api.movie_day() if media_type == "Movies" else trending_api.tv_day()
-
 t_cols = st.columns(6)
 count = 0
 for item in trending_results:
     if count >= 6: break
     if not is_adult and get_safe_val(item, 'adult', False): continue
-    
     poster = get_safe_val(item, 'poster_path')
     if poster:
         with t_cols[count]:
             st.image(f"https://image.tmdb.org/t/p/w500{poster}", use_container_width=True)
             st.caption(get_safe_val(item, 'title', get_safe_val(item, 'name', ''))[:20])
             count += 1
-
 st.divider()
 
-# --- 6. DISCOVERY ---
-st.header("🎯 Personal Recommendations")
-mood_map = {"Happy": 35, "Sad": 18, "Excited": 28, "Scared": 27, "Bored": 53}
-mood = st.selectbox("How is your mood?", list(mood_map.keys()))
+# --- 6. SEARCH & GENRE SELECTION ---
+st.header("🎯 Explore Cinema")
+search_query = st.text_input("🔍 Search for a movie or TV show...", placeholder="e.g. RRR, Stranger Things")
 
-if st.button("Generate My List"):
+# Fetch dynamic genres from API
+genre_dict = get_genres(media_type)
+selected_genres = st.multiselect("📂 Select Genres", list(genre_dict.keys()))
+
+if st.button("Generate Recommendations") or search_query:
     today = datetime.now().strftime('%Y-%m-%d')
     results = []
-    for p in range(1, 4):
-        params = {
-            'with_genres': mood_map[mood], 'with_original_language': lang_map[sel_lang],
-            'page': p, 'include_adult': is_adult, 
-            'primary_release_date.lte': today if media_type == "Movies" else None
-        }
-        data = discover_api.discover_movies(params) if media_type == "Movies" else discover_api.discover_tv_shows(params)
-        results.extend(data)
+    
+    if search_query:
+        # Global Search logic
+        results = movie_api.search(search_query) if media_type == "Movies" else tv_api.search(search_query)
+    else:
+        # Genre-wise discovery logic
+        genre_ids = [genre_dict[g] for g in selected_genres]
+        for p in range(1, 4):
+            params = {
+                'with_genres': ",".join(map(str, genre_ids)) if genre_ids else None,
+                'with_original_language': lang_map[sel_lang],
+                'page': p, 'include_adult': is_adult, 'vote_average.gte': min_rating,
+                'primary_release_date.lte': today if media_type == "Movies" else None
+            }
+            data = discover_api.discover_movies(params) if media_type == "Movies" else discover_api.discover_tv_shows(params)
+            results.extend(data)
 
+    # --- 7. DISPLAY GRID ---
     if results:
         main_cols = st.columns(4)
         processed = 0
         for item in results:
             if processed >= 40: break
-            
-            # Safety Checks
             item_is_adult = get_safe_val(item, 'adult', False)
             g_ids = get_safe_val(item, 'genre_ids', [])
             if not is_adult and (item_is_adult or 27 in g_ids or 53 in g_ids): continue
-
             poster = get_safe_val(item, 'poster_path')
             if poster:
                 with main_cols[processed % 4]:
                     st.image(f"https://image.tmdb.org/t/p/w500{poster}")
                     st.subheader(get_safe_val(item, 'title', get_safe_val(item, 'name', '')))
-                    
-                    if item_is_adult:
-                        st.markdown('<div class="adult-warning">🔞 ADULT CONTENT</div>', unsafe_allow_html=True)
-                    
-                    with st.expander("More Details"):
-                        trailer, ott_n, ott_l, cast, d_name = get_detailed_info(get_safe_val(item, 'id'), media_type)
-                        st.write(f"🎬 **Directed by:** {d_name}")
+                    if item_is_adult: st.markdown('<div class="adult-warning">🔞 ADULT CONTENT</div>', unsafe_allow_html=True)
+                    with st.expander("Details, Cast & Runtime"):
+                        trailer, ott_n, ott_l, cast, d_name, r_time = get_detailed_info(get_safe_val(item, 'id'), media_type)
+                        st.markdown(f'<p class="info-label">⏳ Runtime: {r_time}</p>', unsafe_allow_html=True)
+                        st.write(f"🎬 **Directed by:** {d_name} | ⭐ **Rating:** {get_safe_val(item, 'vote_average')}/10")
                         st.write(get_safe_val(item, 'overview'))
-                        
                         if cast:
-                            st.write("🎭 **Cast:**")
+                            st.write("🎭 **Top Cast:**")
                             c_cols = st.columns(5)
                             for idx, a in enumerate(cast):
                                 with c_cols[idx]:
                                     if a['pic']: st.image(f"https://image.tmdb.org/t/p/w200{a['pic']}", use_container_width=True)
                                     st.caption(a['name'])
-                        
                         if trailer: st.video(trailer)
-                        if ott_l != "#":
-                            st.markdown(f'<a href="{ott_l}" target="_blank" class="ott-link">Watch on {ott_n} ➔</a>', unsafe_allow_html=True)
+                        st.markdown(f'<p class="ott-label">📺 Streaming on: {ott_n}</p>', unsafe_allow_html=True)
+                        if ott_l != "#": st.markdown(f'<a href="{ott_l}" target="_blank" class="ott-link">▶️ WATCH NOW ON {ott_n.upper()}</a>', unsafe_allow_html=True)
                 processed += 1
+    else: st.warning("No results found. Try adjusting your filters or search query.")
