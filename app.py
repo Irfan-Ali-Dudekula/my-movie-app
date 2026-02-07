@@ -11,31 +11,19 @@ movie_api, tv_api = Movie(), TV()
 discover_api, trending_api = Discover(), Trending()
 search_api = Search()
 
-# --- 2. PAGE SETUP & DYNAMIC BACKGROUND ---
+# --- 2. PAGE SETUP & BACKGROUND ---
 st.set_page_config(page_title="CinemaPro India", layout="wide", page_icon="🎬")
 
 def set_bg():
     video_url = "http://googleusercontent.com/generated_video_content/10641277448723540926"
     fallback_img = "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?q=80&w=2070"
-    
     st.markdown(f"""
         <style>
-        .stApp {{
-            background: linear-gradient(rgba(0,0,0,0.8), rgba(0,0,0,0.8)), url("{fallback_img}");
-            background-size: cover;
-            background-attachment: fixed;
-        }}
-        #bg-video {{
-            position: fixed; right: 0; bottom: 0;
-            min-width: 100%; min-height: 100%;
-            z-index: -1; filter: brightness(30%); object-fit: cover;
-        }}
+        .stApp {{ background: linear-gradient(rgba(0,0,0,0.8), rgba(0,0,0,0.8)), url("{fallback_img}"); background-size: cover; background-attachment: fixed; }}
+        #bg-video {{ position: fixed; right: 0; bottom: 0; min-width: 100%; min-height: 100%; z-index: -1; filter: brightness(30%); object-fit: cover; }}
         .ott-link {{ background-color: #28a745; color: white !important; padding: 10px; border-radius: 8px; text-decoration: none; display: block; text-align: center; font-weight: bold; }}
-        .tmdb-attribution {{ font-size: 0.8em; color: #ccc; margin-top: 20px; border-top: 1px solid #444; padding-top: 10px; }}
         </style>
-        <video autoplay muted loop id="bg-video">
-            <source src="{video_url}" type="video/mp4">
-        </video>
+        <video autoplay muted loop id="bg-video"><source src="{video_url}" type="video/mp4"></video>
         """, unsafe_allow_html=True)
 
 set_bg()
@@ -54,37 +42,26 @@ if not st.session_state.logged_in:
             st.session_state.u_name = u_name
             st.session_state.u_age = u_age
             st.rerun()
-        else:
-            st.error("Please enter your name.")
+        else: st.error("Please enter your name.")
 else:
-    # --- 4. SIDEBAR & BRANDING ---
+    # --- 4. SIDEBAR & EXTENDED LANGUAGES ---
     st.sidebar.title(f"👤 {st.session_state.u_name}")
     is_adult = st.session_state.u_age >= 18
     
-    # API Status Diagnostic
-    try:
-        response = requests.get(f"https://api.themoviedb.org/3/configuration?api_key={tmdb.api_key}")
-        if response.status_code == 200:
-            st.sidebar.success("✅ API Connected")
-        else:
-            st.sidebar.error("❌ API Key Invalid")
-    except:
-        st.sidebar.warning("⚠️ Connection Issue")
-
-    # Mandatory TMDB Credits
-    st.sidebar.markdown("""
-        <div class="tmdb-attribution">
-            <img src="https://www.themoviedb.org/assets/2/v4/logos/v2/blue_square_1-5bdc75aae11efab7ee0aa2105058f1092ec95c6453055f77118921d84012f55a.svg" width="60">
-            <p style='margin-top: 10px;'>This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
-        </div>
-    """, unsafe_allow_html=True)
+    st.sidebar.markdown("""<div style='font-size:0.8em; color:#ccc;'><img src="https://www.themoviedb.org/assets/2/v4/logos/v2/blue_square_1-5bdc75aae11efab7ee0aa2105058f1092ec95c6453055f77118921d84012f55a.svg" width="50"><br>This product uses the TMDB API but is not endorsed or certified by TMDB.</div>""", unsafe_allow_html=True)
 
     if st.sidebar.button("Log Out"):
         st.session_state.logged_in = False
         st.rerun()
 
     media_type = st.sidebar.selectbox("Content Type", ["Movies", "TV Shows"])
-    lang_map = {"Telugu": "te", "Hindi": "hi", "English": "en", "Tamil": "ta"}
+    
+    # Extended Language Map including Indian, Korean, Chinese, English
+    lang_map = {
+        "Telugu": "te", "Hindi": "hi", "English": "en", "Tamil": "ta", 
+        "Malayalam": "ml", "Kannada": "kn", "Bengali": "bn", "Punjabi": "pa",
+        "Korean": "ko", "Chinese": "zh", "Japanese": "ja"
+    }
     sel_lang = st.sidebar.selectbox("Language", list(lang_map.keys()))
 
     # --- 5. DATA HELPERS ---
@@ -105,32 +82,37 @@ else:
         except: return None, "N/A", "#", "N/A"
 
     # --- 6. TRENDING ---
-    st.title(f"🔥 Trending in India")
+    st.title(f"🔥 Trending in {sel_lang}")
     try:
         trending = list(trending_api.movie_day() if media_type == "Movies" else trending_api.tv_day())
         t_cols = st.columns(6)
-        for i, item in enumerate(trending[:6]):
-            if isinstance(item, str): continue
+        count = 0
+        for item in trending:
+            if count >= 6 or isinstance(item, str): continue
+            if get_safe_val(item, 'original_language') != lang_map[sel_lang]: continue
             poster = get_safe_val(item, 'poster_path')
             if poster:
-                with t_cols[i]:
+                with t_cols[count]:
                     st.image(f"https://image.tmdb.org/t/p/w500{poster}")
                     st.caption(get_safe_val(item, 'title', get_safe_val(item, 'name', '')))
-    except: st.warning("Trending data is currently unavailable.")
+                    count += 1
+    except: st.warning("Trending data unavailable for this selection.")
 
     st.divider()
 
-    # --- 7. UNIVERSAL SEARCH & MOOD ---
+    # --- 7. UNIVERSAL SEARCH & STABILIZED MOOD ---
     st.header("🎯 Discover Your Next Watch")
-    search_query = st.text_input("🔍 Search for Movies, TV Shows, Actors, or Directors...", placeholder="e.g. Prabhas or Salaar")
+    search_query = st.text_input("🔍 Search for Movies, TV Shows, Actors, or Directors...")
     
     mood_map = {
         "Happy (Comedy/Animation)": [35, 16],
         "Sad (Drama/Romance)": [18, 10749],
         "Excited (Action/Adventure)": [28, 12],
-        "Scared (Horror/Thriller)": [27, 53]
+        "Scared (Horror/Thriller)": [27, 53],
+        "Brave (War/Western)": [10752, 37],
+        "Curious (Mystery/Science Fiction)": [96, 878]
     }
-    selected_mood = st.selectbox("🎭 Select your Mood", ["None"] + list(mood_map.keys()))
+    selected_mood = st.selectbox("🎭 Select Mood", ["None"] + list(mood_map.keys()))
 
     if st.button("Generate My List") or search_query:
         results = []
@@ -139,46 +121,38 @@ else:
             for res in search_data:
                 if get_safe_val(res, 'media_type') == 'person':
                     results.extend(get_safe_val(res, 'known_for', []))
-                else:
-                    results.append(res)
+                else: results.append(res)
         else:
             mood_ids = mood_map.get(selected_mood, [])
-            # FIX: Use "|" (OR) instead of "," (AND) to find ANY of the mood genres
+            # FIX: Use "|" (OR) instead of "," (AND) for better genre matching
             genre_string = "|".join(map(str, mood_ids)) if mood_ids else None
-            params = {
-                'with_genres': genre_string, 
-                'with_original_language': lang_map[sel_lang],
-                'sort_by': 'popularity.desc'
-            }
+            params = {'with_genres': genre_string, 'with_original_language': lang_map[sel_lang], 'sort_by': 'popularity.desc'}
             
-            if media_type == "Movies":
-                results = list(discover_api.discover_movies(params))
-            else:
-                results = list(discover_api.discover_tv_shows(params))
+            results = list(discover_api.discover_movies(params) if media_type == "Movies" else discover_api.discover_tv_shows(params))
 
-            # FALLBACK: If zero results found, show popular content in that language
+            # FALLBACK: If specific mood+lang has 0 results, show hits in that language
             if not results:
-                st.warning(f"No exact matches for '{selected_mood}' found in {sel_lang}. Showing general hits!")
+                st.info(f"Expanding search for {sel_lang} {media_type}...")
                 params.pop('with_genres', None)
-                results = list(discover_api.discover_tv_shows(params)) if media_type == "TV Shows" else list(discover_api.discover_movies(params))
+                results = list(discover_api.discover_movies(params) if media_type == "Movies" else discover_api.discover_tv_shows(params))
 
         if results:
             main_cols = st.columns(4)
-            processed_count = 0
+            processed = 0
             for item in list(results):
-                if processed_count >= 20: break
+                if processed >= 20: break
                 if isinstance(item, str): continue
                 if not is_adult and get_safe_val(item, 'adult', False): continue
                 
                 poster = get_safe_val(item, 'poster_path')
                 if poster:
-                    with main_cols[processed_count % 4]:
+                    with main_cols[processed % 4]:
                         st.image(f"https://image.tmdb.org/t/p/w500{poster}")
                         st.subheader(get_safe_val(item, 'title', get_safe_val(item, 'name', '')))
-                        with st.expander("Details & Watch"):
+                        with st.expander("Details"):
                             trailer, ott_n, ott_l, rt = get_detailed_info(get_safe_val(item, 'id'), media_type)
                             st.write(f"⏳ {rt} | ⭐ {get_safe_val(item, 'vote_average')}/10")
                             st.write(get_safe_val(item, 'overview'))
                             if trailer: st.video(trailer)
                             if ott_l != "#": st.markdown(f'<a href="{ott_l}" target="_blank" class="ott-link">Watch on {ott_n}</a>', unsafe_allow_html=True)
-                    processed_count += 1
+                    processed += 1
