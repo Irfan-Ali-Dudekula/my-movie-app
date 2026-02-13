@@ -23,6 +23,16 @@ def set_bg():
         #bg-video {{ position: fixed; right: 0; bottom: 0; min-width: 100%; min-height: 100%; z-index: -1; filter: brightness(25%); object-fit: cover; }}
         .ott-link {{ background-color: #e50914; color: white !important; padding: 12px; border-radius: 8px; text-decoration: none; display: block; text-align: center; font-weight: bold; font-size: 1.1em; border: 1px solid #ff4b4b; }}
         .cast-text {{ color: #f0ad4e; font-weight: bold; font-size: 0.9em; }}
+        /* Highlight for the IMDb Rating */
+        .rating-box {{
+            background-color: #f5c518;
+            color: #000;
+            padding: 4px 8px;
+            border-radius: 5px;
+            font-weight: bold;
+            display: inline-block;
+            margin-bottom: 10px;
+        }}
         </style>
         <video autoplay muted loop id="bg-video"><source src="{video_url}" type="video/mp4"></video>
         """, unsafe_allow_html=True)
@@ -104,10 +114,9 @@ else:
             if m_ids: p['with_genres'] = "|".join(map(str, m_ids))
             results = list(discover_api.discover_movies(p) if media_type == "Movies" else discover_api.discover_tv_shows(p))
 
-        # --- SMART FALLBACK ---
         if not results:
-            st.warning("No exact matches found for your filter. Showing popular choices instead!")
-            p.pop('with_genres', None) # Remove the mood filter to find something
+            st.warning("No exact matches found. Showing popular choices instead!")
+            p.pop('with_genres', None)
             results = list(discover_api.discover_movies(p) if media_type == "Movies" else discover_api.discover_tv_shows(p))
 
         if results:
@@ -117,15 +126,18 @@ else:
                 if processed >= 20: break
                 if isinstance(item, str): continue
                 
-                # Filter for release date and age
                 rd = get_safe_val(item, 'release_date', get_safe_val(item, 'first_air_date', '9999-12-31'))
                 if rd > today or (not is_adult and get_safe_val(item, 'adult', False)): continue
 
                 cast, ott_n, ott_l = get_detailed_info(get_safe_val(item, 'id'), media_type)
                 
-                # Show results even if OTT link is missing, but label it clearly
                 with main_cols[processed % 4]:
                     st.image(f"https://image.tmdb.org/t/p/w500{get_safe_val(item, 'poster_path')}")
+                    
+                    # Highlighted IMDb Rating Box
+                    vote_avg = get_safe_val(item, 'vote_average', 0)
+                    st.markdown(f"<div class='rating-box'>⭐ IMDb {vote_avg:.1f}/10</div>", unsafe_allow_html=True)
+                    
                     st.subheader(get_safe_val(item, 'title', get_safe_val(item, 'name', ''))[:25])
                     with st.expander("Details & Streaming"):
                         st.write(f"📖 **Plot:** {get_safe_val(item, 'overview')[:150]}...")
@@ -134,5 +146,5 @@ else:
                             st.success(f"📺 Available on: **{ott_n}**")
                             st.markdown(f'<a href="{ott_l}" target="_blank" class="ott-link">▶️ WATCH ON {ott_n.upper()}</a>', unsafe_allow_html=True)
                         else:
-                            st.warning("Check YouTube or Local Cable for availability.")
+                            st.warning("Streaming link currently unavailable.")
                 processed += 1
