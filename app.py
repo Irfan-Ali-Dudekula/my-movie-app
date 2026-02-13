@@ -11,11 +11,10 @@ movie_api, tv_api = Movie(), TV()
 discover_api, trending_api = Discover(), Trending()
 search_api = Search()
 
-# --- 2. PAGE SETUP & BACKGROUND (Extracted from your code) ---
+# --- 2. PAGE SETUP & BACKGROUND ---
 st.set_page_config(page_title="Irfan Recommendation System (IRS)", layout="wide", page_icon="🎬")
 
 def set_bg():
-    # Extracted background image and video URLs
     video_url = "http://googleusercontent.com/generated_video_content/10641277448723540926"
     fallback_img = "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?q=80&w=2070"
     
@@ -49,7 +48,6 @@ def set_bg():
             display: inline-block;
             margin-bottom: 10px;
         }}
-        /* LED Ceiling Decoration mimicking IMAX style */
         .ceiling-lights {{
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100px;
@@ -87,7 +85,7 @@ if not st.session_state.logged_in:
 else:
     # --- 4. MAIN INTERFACE (IRS) ---
     st.sidebar.title(f"👤 {st.session_state.u_name}")
-    set_bg() # Background persists from extracted configuration
+    set_bg()
     
     is_adult = st.session_state.u_age >= 18
     if st.sidebar.button("Log Out"):
@@ -114,7 +112,7 @@ else:
             return cast, ott_n, ott_l
         except: return "N/A", None, None
 
-    # --- 6. IRS DISCOVERY LOGIC ---
+    # --- 6. IRS DISCOVERY (Upgraded to 100 results) ---
     st.title(f"✨ Irfan Recommendation System (IRS) ✨")
     search_query = st.text_input("🔍 Search Movies, TV Shows, Actors, or Directors...")
     mood_map = {"Happy 😊": [35, 16], "Sad 😢": [18, 10749], "Excited 🤩": [28, 12], "Scared 😨": [27, 53]}
@@ -128,20 +126,35 @@ else:
         else:
             results = []
             today = datetime.now().strftime('%Y-%m-%d')
+            
             if search_query:
                 results = list(search_api.multi(search_query))
             else:
-                p = {'with_original_language': lang_map[sel_lang], 'primary_release_date.lte': today, 'air_date.lte': today, 'watch_region': 'IN', 'sort_by': 'popularity.desc'}
                 m_ids = mood_map.get(selected_mood.split()[0], [])
-                if m_ids: p['with_genres'] = "|".join(map(str, m_ids))
-                results = list(discover_api.discover_movies(p) if media_type == "Movies" else discover_api.discover_tv_shows(p))
+                genre_string = "|".join(map(str, m_ids)) if m_ids else None
+                
+                # Loop to collect up to 100 items from multiple API pages
+                for page in range(1, 6): # Fetching first 5 pages (20 per page)
+                    p = {
+                        'with_original_language': lang_map[sel_lang],
+                        'primary_release_date.lte': today,
+                        'air_date.lte': today,
+                        'watch_region': 'IN',
+                        'sort_by': 'popularity.desc',
+                        'with_genres': genre_string,
+                        'page': page
+                    }
+                    page_results = list(discover_api.discover_movies(p) if media_type == "Movies" else discover_api.discover_tv_shows(p))
+                    results.extend(page_results)
+                    if len(results) >= 100: break
 
             if results:
                 main_cols = st.columns(4)
                 processed = 0
-                for item in list(results):
-                    if processed >= 20: break
+                for item in results:
+                    if processed >= 100: break # Hard limit to 100
                     if isinstance(item, str): continue
+                    
                     rd = getattr(item, 'release_date', getattr(item, 'first_air_date', '9999-12-31'))
                     if rd > today or (not is_adult and getattr(item, 'adult', False)): continue
 
@@ -152,7 +165,7 @@ else:
                         st.markdown(f"<div class='rating-box'>⭐ IMDb {getattr(item, 'vote_average', 0):.1f}/10</div>", unsafe_allow_html=True)
                         st.subheader(getattr(item, 'title', getattr(item, 'name', ''))[:25])
                         with st.expander("📖 Full Plot & Cast"):
-                            st.write(getattr(item, 'overview', 'Plot details unavailable.'))
+                            st.write(getattr(item, 'overview', 'Plot unavailable.'))
                             st.markdown(f"<p class='cast-text'>🎭 Cast: {cast}</p>", unsafe_allow_html=True)
                             if ott_n:
                                 st.success(f"📺 Watch on: **{ott_n}**")
