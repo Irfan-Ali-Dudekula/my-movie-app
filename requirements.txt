@@ -1,2 +1,5 @@
 streamlit
 tmdbv3api
+requests
+pandas
+urllib3
