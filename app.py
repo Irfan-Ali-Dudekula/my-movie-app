@@ -15,15 +15,12 @@ if 'logged_in' not in st.session_state:
 if 'user_db' not in st.session_state:
     st.session_state.user_db = []
 
-# --- 2. CORE STABILIZATION (Upgraded for Stability) ---
+# --- 2. CORE STABILIZATION ---
 @st.cache_resource
 def get_bulletproof_session():
-    """Increased pool size and timeout to stop 'Connection Unstable'"""
     session = requests.Session()
-    # High retry count and longer wait times to ensure real data loads
     retries = Retry(total=10, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
-    # Increased connections to 20 to handle multiple cards at once
-    adapter = HTTPAdapter(pool_connections=20, pool_maxsize=40, max_retries=retries)
+    adapter = HTTPAdapter(pool_connections=20, pool_maxsize=100, max_retries=retries)
     session.mount('https://', adapter)
     session.mount('http://', adapter)
     return session
@@ -104,57 +101,80 @@ else:
         if st.session_state.u_age >= 18: mood_map["Romantic"] = 10749
         
         sel_mood = st.sidebar.selectbox("Current Mood", ["Select"] + list(mood_map.keys()))
-        lang_map = {"Telugu": "te", "Hindi": "hi", "Tamil": "ta", "English": "en"}
+        
+        # --- EXPANDED LANGUAGES ---
+        lang_map = {
+            "Telugu": "te", "Hindi": "hi", "Tamil": "ta", "Malayalam": "ml", "Kannada": "kn",
+            "English": "en", "Spanish": "es", "French": "fr", "German": "de", "Japanese": "ja",
+            "Korean": "ko", "Chinese": "zh", "Arabic": "ar", "Russian": "ru", "Italian": "it",
+            "Bengali": "bn", "Marathi": "mr", "Gujarati": "gu", "Punjabi": "pa"
+        }
         sel_lang = st.sidebar.selectbox("Language", ["Select"] + sorted(list(lang_map.keys())))
-        sel_era = st.sidebar.selectbox("Choose Era", ["Select", "2020-2030", "2010-2020", "2000-2010"])
+        sel_era = st.sidebar.selectbox("Choose Era", ["Select", "2020-2030", "2010-2020", "2000-2010", "1990-2000", "1980-1990"])
 
-        # --- FIX: REAL DATA ONLY (No Placeholders) ---
         @st.cache_data(ttl=3600)
         def get_real_details(m_id, type_str):
-            """Returns only verified metadata; eliminates 'Loading...' text"""
             try:
                 obj = movie_api if type_str == "Movies" else tv_api
                 res = obj.details(m_id, append_to_response="credits,watch/providers,videos")
-                
-                # Fetch Real Plot and Real Cast
                 plot = res.overview if hasattr(res, 'overview') and res.overview else "No summary available."
                 cast_data = getattr(res, 'credits', {}).get('cast', [])
                 cast = ", ".join([c['name'] for c in cast_data[:5]]) if cast_data else "Cast not listed."
-                
-                # OTT and Trailer Logic
                 providers = getattr(res, 'watch/providers', {}).get('results', {}).get('IN', {})
                 ott_n, ott_l = None, None
                 for mode in ['flatrate', 'free', 'ads']:
                     if mode in providers:
                         ott_n, ott_l = providers[mode][0]['provider_name'], providers.get('link')
                         break
-                
                 trailer = next((f"https://www.youtube.com/watch?v={v['key']}" for v in getattr(res, 'videos', {}).get('results', []) if v['type'] == 'Trailer' and v['site'] == 'YouTube'), None)
                 return plot, cast, ott_n, ott_l, trailer
-            except:
-                return None, None, None, None, None
+            except: return None, None, None, None, None
 
         st.title("🎬 IRFAN CINEMATIC UNIVERSE (ICU)")
         st.subheader("Mood Based Movie Recommendation System")
 
-        if st.button("Generate Recommendations 🚀"):
-            if m_type != "Select" and sel_lang != "Select" and sel_era != "Select" and sel_mood != "Select":
-                s_year, e_year = map(int, sel_era.split('-'))
-                p = {'with_original_language': lang_map[sel_lang], 'primary_release_date.gte': f"{s_year}-01-01", 'primary_release_date.lte': f"{e_year}-12-31", 'with_genres': mood_map[sel_mood], 'sort_by': 'popularity.desc', 'include_adult': False if st.session_state.u_age < 18 else True}
-                results = list(discover_api.discover_movies(p) if m_type == "Movies" else discover_api.discover_tv_shows(p))
+        search_query = st.text_input("🔍 Search Movies...")
+
+        if st.button("Generate Recommendations 🚀") or search_query:
+            results = []
+            try:
+                if search_query:
+                    search_results = search_api.multi(search_query)
+                    results = [r for r in search_results if hasattr(r, 'id')]
+                elif m_type != "Select" and sel_lang != "Select" and sel_era != "Select" and sel_mood != "Select":
+                    s_year, e_year = map(int, sel_era.split('-'))
+                    p = {
+                        'with_original_language': lang_map[sel_lang], 
+                        'primary_release_date.gte': f"{s_year}-01-01", 
+                        'primary_release_date.lte': f"{e_year}-12-31", 
+                        'with_genres': mood_map[sel_mood], 
+                        'sort_by': 'popularity.desc', 
+                        'include_adult': False if st.session_state.u_age < 18 else True
+                    }
+                    
+                    # FETCH MULTIPLE PAGES TO REACH 75+ ITEMS
+                    for page in range(1, 5): 
+                        p['page'] = page
+                        page_results = list(discover_api.discover_movies(p) if m_type == "Movies" else discover_api.discover_tv_shows(p))
+                        results.extend(page_results)
+                        if len(results) >= 100: break
 
                 if results:
                     cols = st.columns(3)
                     processed = 0
+                    # INCREASED LIMIT TO 75
                     for item in results:
-                        if processed >= 12: break 
-                        # Only show if real details are ready
-                        plot, cast, ott_n, ott_l, trailer = get_real_details(item.id, m_type)
-                        if not plot: continue # Skip if plot fails to load
+                        if processed >= 75: break 
+                        
+                        m_id = getattr(item, 'id', None)
+                        if not m_id: continue
+
+                        plot, cast, ott_n, ott_l, trailer = get_real_details(m_id, m_type if m_type != "Select" else "Movies")
+                        if not plot or plot == "No summary available.": continue
 
                         with cols[processed % 3]:
                             st.image(f"https://image.tmdb.org/t/p/w500{getattr(item, 'poster_path', '')}")
-                            st.subheader(f"{getattr(item, 'title', getattr(item, 'name', ''))[:20]}")
+                            st.subheader(f"{getattr(item, 'title', getattr(item, 'name', ''))[:25]}")
                             with st.expander("📖 View Real Plot & Cast"):
                                 st.markdown(f"**Plot:** {plot}")
                                 st.markdown(f"**Cast:** <span class='cast-text'>{cast}</span>", unsafe_allow_html=True)
@@ -162,3 +182,5 @@ else:
                             if trailer: st.video(trailer)
                             if ott_l: st.markdown(f'<a href="{ott_l}" target="_blank" class="play-button">▶️ PLAY NOW</a>', unsafe_allow_html=True)
                             processed += 1
+            except Exception as e:
+                st.warning("Connection unstable. Please refresh the page.")
