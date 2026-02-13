@@ -11,59 +11,34 @@ movie_api, tv_api = Movie(), TV()
 discover_api, trending_api = Discover(), Trending()
 search_api = Search()
 
-# --- 2. PAGE SETUP & BACKGROUND (Imported from your code) ---
+# --- 2. PAGE SETUP & BACKGROUND ---
 st.set_page_config(page_title="Irfan Recommendation System (IRS)", layout="wide", page_icon="🎬")
 
 def set_bg():
-    # Extracted background image and video URLs from your request
+    # Restoring your specific background and video
     video_url = "http://googleusercontent.com/generated_video_content/10641277448723540926"
     fallback_img = "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?q=80&w=2070"
     
     st.markdown(f"""
         <style>
         .stApp {{ 
-            background: linear-gradient(rgba(0,0,0,0.8), rgba(0,0,0,0.8)), url("{fallback_img}"); 
-            background-size: cover; 
-            background-attachment: fixed; 
+            background: linear-gradient(rgba(0,0,0,0.85), rgba(0,0,0,0.85)), url("{fallback_img}"); 
+            background-size: cover; background-attachment: fixed; 
         }}
         #bg-video {{ 
-            position: fixed; right: 0; bottom: 0; 
-            min-width: 100%; min-height: 100%; 
-            z-index: -1; filter: brightness(25%); 
-            object-fit: cover; 
+            position: fixed; right: 0; bottom: 0; min-width: 100%; min-height: 100%; 
+            z-index: -1; filter: brightness(20%); object-fit: cover; 
         }}
-        .ott-link {{ 
-            background-color: #e50914; color: white !important; 
-            padding: 12px; border-radius: 8px; 
-            text-decoration: none; display: block; 
-            text-align: center; font-weight: bold; 
-            font-size: 1.1em; border: 1px solid #ff4b4b; 
-        }}
+        .ott-link {{ background-color: #e50914; color: white !important; padding: 12px; border-radius: 8px; text-decoration: none; display: block; text-align: center; font-weight: bold; font-size: 1.1em; border: 1px solid #ff4b4b; }}
         .cast-text {{ color: #f0ad4e; font-weight: bold; font-size: 0.9em; }}
-        .rating-box {{
-            background-color: #f5c518;
-            color: #000;
-            padding: 4px 8px;
-            border-radius: 5px;
-            font-weight: bold;
-            display: inline-block;
-            margin-bottom: 10px;
-        }}
-        /* LED Ceiling Decoration mimicking IMAX style */
+        .rating-box {{ background-color: #f5c518; color: #000; padding: 4px 8px; border-radius: 5px; font-weight: bold; display: inline-block; margin-bottom: 10px; }}
         .ceiling-lights {{
-            position: fixed;
-            top: 0; left: 0; width: 100%; height: 100px;
+            position: fixed; top: 0; left: 0; width: 100%; height: 100px;
             background: radial-gradient(circle, rgba(0, 191, 255, 0.9) 1.5px, transparent 1.5px);
-            background-size: 30px 30px;
-            z-index: 100;
-            filter: drop-shadow(0 0 5px rgba(0, 191, 255, 0.5));
-            animation: twinkle 3s infinite ease-in-out;
+            background-size: 30px 30px; z-index: 100; animation: twinkle 3s infinite ease-in-out;
         }}
-        @keyframes twinkle {{
-            0%, 100% {{ opacity: 0.3; }}
-            50% {{ opacity: 0.8; }}
-        }}
-        h1, h2, h3, p, span, label {{ color: #FFFFFF !important; }}
+        @keyframes twinkle {{ 0%, 100% {{ opacity: 0.3; }} 50% {{ opacity: 0.8; }} }}
+        h1, h2, h3, p, span, label, div {{ color: #FFFFFF !important; }}
         </style>
         <video autoplay muted loop id="bg-video"><source src="{video_url}" type="video/mp4"></video>
         <div class="ceiling-lights"></div>
@@ -84,7 +59,7 @@ if not st.session_state.logged_in:
             st.rerun()
         else: st.error("Access Denied: Name required.")
 else:
-    # --- 4. MAIN INTERFACE (IRS) ---
+    # --- 4. MAIN DASHBOARD (IRS) ---
     st.sidebar.title(f"👤 {st.session_state.u_name}")
     set_bg()
     
@@ -92,15 +67,13 @@ else:
         st.session_state.logged_in = False
         st.rerun()
 
+    # Required Selection Logic
     media_type = st.sidebar.selectbox("Content Type", ["Select", "Movies", "TV Shows"])
     lang_map = {"Telugu": "te", "Hindi": "hi", "English": "en", "Tamil": "ta", "Malayalam": "ml", "Korean": "ko"}
     sel_lang = st.sidebar.selectbox("Language", ["Select"] + list(lang_map.keys()))
-    
-    # Era Selection (10-Year Gap)
     eras = ["Select", "2020-2030", "2010-2020", "2000-2010", "1990-2000", "1980-1990", "1970-1980"]
     sel_era = st.sidebar.selectbox("Choose Era", eras)
 
-    # --- 5. DATA HELPERS ---
     def get_detailed_info(m_id, m_type):
         try:
             res = movie_api.details(m_id, append_to_response="credits,watch/providers") if m_type == "Movies" else tv_api.details(m_id, append_to_response="credits,watch/providers")
@@ -110,31 +83,32 @@ else:
             return cast, ott_n, ott_l
         except: return "N/A", None, None
 
-    # --- 6. IRS DISCOVERY LOGIC (Up to 100 results) ---
-    st.title(f"✨ Irfan Recommendation System (IRS) ✨")
+    # --- 5. IRS INTERFACE ---
+    st.title(f"✨ Irfan Recommendation System (IRS)")
     search_query = st.text_input("🔍 Search Movies, TV Shows, Actors, or Directors...")
     mood_map = {"Happy 😊": [35, 16], "Sad 😢": [18, 10749], "Excited 🤩": [28, 12], "Scared 😨": [27, 53]}
     selected_mood = st.selectbox("🎭 Select Mood", ["Select"] + list(mood_map.keys()))
 
+    # Enhanced Gate Logic
     ready = (media_type != "Select" and sel_lang != "Select" and selected_mood != "Select" and sel_era != "Select")
 
-    if st.button("Generate IRS Report 🚀") or search_query:
+    if st.button("Generate Recommendations 🚀") or search_query:
         if not search_query and not ready:
-            st.error("⚠️ ICU Protocol: Please select all filters (Content, Language, Mood, and Era)!")
+            st.error("⚠️ ICU Protocol: Please select ALL filters (Content, Language, Mood, and Era)!")
         else:
             results = []
             today = datetime.now().strftime('%Y-%m-%d')
-            start_year, end_year = (None, None)
-            if sel_era != "Select": start_year, end_year = sel_era.split('-')
-
+            
             try:
                 if search_query:
                     results = list(search_api.multi(search_query))
                 else:
-                    m_ids = mood_map.get(selected_mood.split()[0], [])
+                    # Parse Era
+                    start_year, end_year = sel_era.split('-')
+                    m_ids = mood_map.get(selected_mood, [])
                     genre_string = "|".join(map(str, m_ids)) if m_ids else None
                     
-                    for page in range(1, 6): # Gather up to 100 items
+                    for page in range(1, 6): # Fetch up to 100 results
                         p = {
                             'with_original_language': lang_map[sel_lang],
                             'primary_release_date.gte': f"{start_year}-01-01",
@@ -169,5 +143,7 @@ else:
                                     st.success(f"📺 Watch on: **{ott_n}**")
                                     st.markdown(f'<a href="{ott_l}" target="_blank" class="ott-link">▶️ OPEN {ott_n.upper()}</a>', unsafe_allow_html=True)
                         processed += 1
-                else: st.warning("No matches found for this specific criteria.")
-            except Exception as e: st.error(f"IRS Processing Error: {e}")
+                else:
+                    st.warning("No matches found. Try expanding your Era or changing your Mood!")
+            except Exception as e:
+                st.error(f"IRS Processing Error: {e}")
