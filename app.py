@@ -11,8 +11,8 @@ movie_api, tv_api = Movie(), TV()
 discover_api, trending_api = Discover(), Trending()
 search_api = Search()
 
-# --- 2. PAGE SETUP & BACKGROUND ---
-st.set_page_config(page_title="Irfan Recommendation System (IRS)", layout="wide", page_icon="🎬")
+# --- 2. PAGE SETUP & THEATER UI ---
+st.set_page_config(page_title="IRS - Universal OTT Access", layout="wide", page_icon="🎬")
 
 def set_bg():
     video_url = "http://googleusercontent.com/generated_video_content/10641277448723540926"
@@ -20,32 +20,32 @@ def set_bg():
     
     st.markdown(f"""
         <style>
-        .stApp {{ 
-            background: linear-gradient(rgba(0,0,0,0.85), rgba(0,0,0,0.85)), url("{fallback_img}"); 
-            background-size: cover; background-attachment: fixed; 
-        }}
-        #bg-video {{ 
-            position: fixed; right: 0; bottom: 0; min-width: 100%; min-height: 100%; 
-            z-index: -1; filter: brightness(20%); object-fit: cover; 
-        }}
-        .ott-button {{ 
-            background-color: #28a745; color: white !important; 
-            padding: 15px; border-radius: 10px; 
+        .stApp {{ background: linear-gradient(rgba(0,0,0,0.85), rgba(0,0,0,0.85)), url("{fallback_img}"); background-size: cover; background-attachment: fixed; }}
+        #bg-video {{ position: fixed; right: 0; bottom: 0; min-width: 100%; min-height: 100%; z-index: -1; filter: brightness(20%); object-fit: cover; }}
+        
+        /* Premium One-Click Button Style */
+        .play-button {{ 
+            background: linear-gradient(45deg, #e50914, #ff4b4b); 
+            color: white !important; 
+            padding: 14px; border-radius: 12px; 
             text-decoration: none; display: block; 
             text-align: center; font-weight: bold; 
-            font-size: 1.2em; border: 2px solid #1e7e34;
-            margin-top: 15px; transition: 0.3s;
+            font-size: 1.1em; border: none;
+            margin-top: 15px; transition: 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            box-shadow: 0 4px 15px rgba(229, 9, 20, 0.4);
         }}
-        .ott-button:hover {{ background-color: #218838; transform: scale(1.02); }}
+        .play-button:hover {{ transform: translateY(-3px); box-shadow: 0 6px 20px rgba(229, 9, 20, 0.6); }}
+        
         .rating-box {{ background-color: #f5c518; color: #000; padding: 6px 12px; border-radius: 5px; font-weight: bold; display: inline-block; margin-right: 10px; }}
         .ott-badge {{ background-color: #28a745; color: white; padding: 6px 12px; border-radius: 5px; font-weight: bold; display: inline-block; }}
+        
         .ceiling-lights {{
             position: fixed; top: 0; left: 0; width: 100%; height: 100px;
             background: radial-gradient(circle, rgba(0, 191, 255, 0.9) 1.5px, transparent 1.5px);
             background-size: 30px 30px; z-index: 100; animation: twinkle 3s infinite ease-in-out;
         }}
         @keyframes twinkle {{ 0%, 100% {{ opacity: 0.3; }} 50% {{ opacity: 0.8; }} }}
-        h1, h2, h3, p, span, label, div {{ color: #FFFFFF !important; }}
+        h1, h2, h3, p, span, label, div {{ color: #FFFFFF !important; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }}
         </style>
         <video autoplay muted loop id="bg-video"><source src="{video_url}" type="video/mp4"></video>
         <div class="ceiling-lights"></div>
@@ -60,7 +60,7 @@ if not st.session_state.logged_in:
     st.title("🎬 IRFAN CINEMATIC UNIVERSE (ICU)")
     u_name = st.text_input("Member Name")
     u_age = st.number_input("Member Age", 1, 100, 18)
-    if st.button("Enter ICU"):
+    if st.button("Access ICU"):
         if u_name:
             st.session_state.logged_in, st.session_state.u_name, st.session_state.u_age = True, u_name, u_age
             st.rerun()
@@ -80,12 +80,21 @@ else:
     eras = ["Select", "2020-2030", "2010-2020", "2000-2010", "1990-2000", "1980-1990", "1970-1980"]
     sel_era = st.sidebar.selectbox("Choose Era", eras)
 
-    def get_detailed_info(m_id, m_type):
+    def get_universal_ott(m_id, m_type):
+        """Checks for availability across all major Indian & Global OTTs"""
         try:
             res = movie_api.details(m_id, append_to_response="credits,watch/providers") if m_type == "Movies" else tv_api.details(m_id, append_to_response="credits,watch/providers")
             cast = ", ".join([c['name'] for c in res.get('credits', {}).get('cast', [])[:5]])
             providers = res.get('watch/providers', {}).get('results', {}).get('IN', {})
-            ott_n, ott_l = (providers['flatrate'][0]['provider_name'], providers.get('link')) if 'flatrate' in providers else (None, None)
+            
+            ott_n, ott_l = (None, None)
+            if 'flatrate' in providers:
+                ott_n = providers['flatrate'][0]['provider_name']
+                ott_l = providers.get('link') 
+            elif 'ads' in providers:
+                ott_n = f"{providers['ads'][0]['provider_name']} (Free)"
+                ott_l = providers.get('link')
+            
             return cast, ott_n, ott_l
         except: return "N/A", None, None
 
@@ -125,25 +134,23 @@ else:
                         rd = getattr(item, 'release_date', getattr(item, 'first_air_date', '9999-12-31'))
                         if rd > today or (st.session_state.u_age < 18 and getattr(item, 'adult', False)): continue
 
-                        cast, ott_n, ott_l = get_detailed_info(item.id, media_type if media_type != "Select" else "Movies")
+                        cast, ott_n, ott_l = get_universal_ott(item.id, media_type if media_type != "Select" else "Movies")
                         
                         with main_cols[processed % 4]:
                             st.image(f"https://image.tmdb.org/t/p/w500{getattr(item, 'poster_path', '')}")
                             st.subheader(getattr(item, 'title', getattr(item, 'name', ''))[:25])
                             
-                            # Interactive Click-to-See Details Logic
                             with st.expander("👁️ View Details & Watch"):
-                                # Ratings and Status Highlights
                                 st.markdown(f"<div class='rating-box'>⭐ IMDb {getattr(item, 'vote_average', 0):.1f}/10</div>", unsafe_allow_html=True)
                                 if ott_n:
                                     st.markdown(f"<div class='ott-badge'>📺 {ott_n.upper()}</div>", unsafe_allow_html=True)
                                     st.write(f"---")
                                     st.write(getattr(item, 'overview', 'Plot unavailable.'))
                                     st.write(f"🎭 **Cast:** {cast}")
-                                    # Direct Redirect Button
-                                    st.markdown(f'<a href="{ott_l}" target="_blank" class="ott-button">▶️ PLAY ON {ott_n.upper()}</a>', unsafe_allow_html=True)
+                                    # Single Click Redirect Button
+                                    st.markdown(f'<a href="{ott_l}" target="_blank" class="play-button">▶️ ONE-CLICK PLAY ON {ott_n.upper()}</a>', unsafe_allow_html=True)
                                 else:
                                     st.write(getattr(item, 'overview', 'Plot unavailable.'))
-                                    st.warning("Currently not available on major OTT platforms in India.")
+                                    st.warning("Theater Only or Not on major Indian OTT apps.")
                         processed += 1
             except Exception as e: st.error(f"Error: {e}")
