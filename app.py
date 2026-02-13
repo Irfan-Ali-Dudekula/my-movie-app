@@ -10,6 +10,7 @@ import random
 # --- 1. CORE STABILIZATION ---
 @st.cache_resource
 def get_bulletproof_session():
+    """Limits connections to stop OSError(24) and buffering"""
     session = requests.Session()
     retries = Retry(total=5, backoff_factor=2, status_forcelist=[429, 500, 502, 503, 504])
     adapter = HTTPAdapter(pool_connections=10, pool_maxsize=20, max_retries=retries)
@@ -108,19 +109,20 @@ else:
         sel_lang = st.sidebar.selectbox("Language", ["Select"] + sorted(list(lang_map.keys())))
         sel_era = st.sidebar.selectbox("Choose Era", ["Select", "2020-2030", "2010-2020", "2000-2010", "1990-2000"])
 
-        # --- FIX: ROBUST DATA FETCHING ---
+        # --- REBUILT DEEP FETCH: Plot, Cast, OTT, and Trailers ---
         @st.cache_data(ttl=3600)
         def get_deep_details(m_id, type_str):
             try:
-                # Force a secondary detailed fetch for Plot and Cast
+                # Force detailed fetch to include credits and videos
                 obj = movie_api if type_str == "Movies" else tv_api
                 res = obj.details(m_id, append_to_response="credits,watch/providers,videos")
                 
+                # Fetch Plot & Cast safely
                 plot = getattr(res, 'overview', "Plot summary not available.")
                 cast_data = getattr(res, 'credits', {}).get('cast', [])
                 cast = ", ".join([c['name'] for c in cast_data[:5]]) if cast_data else "Cast N/A"
                 
-                # Fetch OTT Data specifically for India
+                # Identify OTT App Name and Redirection Link
                 providers = getattr(res, 'watch/providers', {}).get('results', {}).get('IN', {})
                 ott_n, ott_l = None, None
                 for mode in ['flatrate', 'free', 'ads']:
@@ -152,13 +154,8 @@ else:
                     results = list(search_api.multi(search_query))
                 elif m_type != "Select" and sel_lang != "Select" and sel_era != "Select" and sel_mood != "Select":
                     s_year, e_year = map(int, sel_era.split('-'))
-                    p = {
-                        'with_original_language': lang_map[sel_lang], 
-                        'primary_release_date.gte': f"{s_year}-01-01", 
-                        'primary_release_date.lte': f"{e_year}-12-31", 
-                        'with_genres': mood_map[sel_mood],
-                        'sort_by': 'popularity.desc'
-                    }
+                    p = {'with_original_language': lang_map[sel_lang], 'primary_release_date.gte': f"{s_year}-01-01", 'primary_release_date.lte': f"{e_year}-12-31", 'with_genres': mood_map[sel_mood], 'sort_by': 'popularity.desc'}
+                    # Smart Search: Strict OTT filter with general fallback
                     p_strict = {**p, 'watch_region': 'IN', 'with_watch_monetization_types': 'flatrate|free|ads'}
                     results = list(discover_api.discover_movies(p_strict) if m_type == "Movies" else discover_api.discover_tv_shows(p_strict))
                     if not results:
@@ -175,14 +172,14 @@ else:
                         item_year = int(rd_str.split('-')[0])
                         if not search_query and (item_year < s_year or item_year > e_year): continue
 
-                        # This now forces a fresh pull for every result
+                        # This forces a fresh pull for every result
                         plot, cast, ott_n, ott_l, trailer = get_deep_details(item.id, m_type)
 
                         with cols[processed % 3]:
                             st.image(f"https://image.tmdb.org/t/p/w500{getattr(item, 'poster_path', '')}")
                             st.subheader(f"{getattr(item, 'title', getattr(item, 'name', ''))[:20]} ({item_year})")
                             
-                            with st.expander("📖 Plot & Cast Details"):
+                            with st.expander("📖 View Plot & Cast"):
                                 st.markdown(f"**Plot:** {plot}")
                                 st.markdown(f"**Cast:** <span class='cast-text'>{cast}</span>", unsafe_allow_html=True)
                             
@@ -192,10 +189,11 @@ else:
                                 st.markdown(f"<div class='ott-badge' style='background-color:#555;'>📽️ Theater/Local Only</div>", unsafe_allow_html=True)
                             
                             if trailer:
+                                # Playable YouTube trailer integrated
                                 st.video(trailer) 
                             
                             if ott_l:
-                                # Specialized Green Play Button
+                                # GREEN PLAY BUTTON
                                 st.markdown(f'<a href="{ott_l}" target="_blank" class="play-button">▶️ PLAY ON {ott_n.upper()}</a>', unsafe_allow_html=True)
                             processed += 1
             except Exception as e:
