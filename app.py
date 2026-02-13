@@ -5,7 +5,8 @@ import requests
 import random
 import pandas as pd
 
-# --- 1. GLOBAL SCALING & SESSIONS ---
+# --- 1. GLOBAL SESSION FIX (Rectifies Errno 24) ---
+# Reusing the connection session prevents the "Too many open files" crash
 @st.cache_resource
 def get_tmdb_session():
     session = requests.Session()
@@ -20,12 +21,11 @@ movie_api, tv_api = Movie(), TV()
 discover_api, trending_api = Discover(), Trending()
 search_api = Search()
 
-# --- 2. ADMIN & USER DATABASE (Persistent for this session) ---
+# --- 2. DATABASE & UI SETUP ---
 if 'user_db' not in st.session_state:
-    st.session_state.user_db = [] # Stores login data for Admin view
+    st.session_state.user_db = []
 
-# --- 3. THEATER UI & STYLING ---
-st.set_page_config(page_title="IRS - ICU Admin Control", layout="wide", page_icon="🎬")
+st.set_page_config(page_title="IRS - Fixed & Scalable", layout="wide", page_icon="🎬")
 
 def set_bg():
     video_url = "http://googleusercontent.com/generated_video_content/10641277448723540926"
@@ -36,13 +36,14 @@ def set_bg():
         #bg-video {{ position: fixed; right: 0; bottom: 0; min-width: 100%; min-height: 100%; z-index: -1; filter: brightness(20%); object-fit: cover; }}
         .play-button {{ background: linear-gradient(45deg, #e50914, #ff4b4b); color: white !important; padding: 12px; border-radius: 10px; text-decoration: none; display: block; text-align: center; font-weight: bold; margin-top: 10px; border: none; }}
         .admin-badge {{ background-color: #ff4b4b; color: white; padding: 5px 15px; border-radius: 20px; font-weight: bold; font-size: 0.8em; border: 1px solid white; }}
-        .status-box {{ padding: 10px; border-radius: 10px; background: rgba(255, 255, 255, 0.1); border-left: 5px solid #00ff00; margin-bottom: 20px; }}
+        .rating-box {{ background-color: #f5c518; color: #000; padding: 4px 8px; border-radius: 5px; font-weight: bold; display: inline-block; margin-bottom: 5px; }}
+        .ott-badge {{ background-color: #28a745; color: white; padding: 4px 8px; border-radius: 5px; font-weight: bold; display: inline-block; }}
         h1, h2, h3, p, span, label, div {{ color: white !important; }}
         </style>
         <video autoplay muted loop id="bg-video"><source src="{video_url}" type="video/mp4"></video>
         """, unsafe_allow_html=True)
 
-# --- 4. AUTHENTICATION GATE ---
+# --- 3. AUTHENTICATION ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 
@@ -51,86 +52,40 @@ if not st.session_state.logged_in:
     st.title("🎬 IRFAN CINEMATIC UNIVERSE (ICU)")
     u_name = st.text_input("Member Name").strip()
     u_age = st.number_input("Member Age", 1, 100, 18)
-    
     if st.button("Access ICU"):
         if u_name:
-            # Check for Admin Role
-            is_admin = (u_name.lower() == "irfan")
             st.session_state.logged_in = True
             st.session_state.u_name = u_name
-            st.session_state.u_age = u_age
-            st.session_state.role = "Admin" if is_admin else "Subscriber"
-            
-            # Save login data to DB (Confidential - Visible only to you)
-            st.session_state.user_db.append({
-                "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "User": u_name,
-                "Age": u_age,
-                "Role": st.session_state.role
-            })
+            st.session_state.role = "Admin" if u_name.lower() == "irfan" else "Subscriber"
+            st.session_state.user_db.append({"Time": datetime.now().strftime("%H:%M:%S"), "User": u_name, "Age": u_age})
             st.rerun()
-        else: st.error("Name required.")
 else:
-    # --- 5. SHARED SIDEBAR NAVIGATION ---
+    # --- 4. NAVIGATION & LIVE STATUS ---
     set_bg()
     st.sidebar.title(f"👤 {st.session_state.u_name}")
-    
     if st.session_state.role == "Admin":
         st.sidebar.markdown("<span class='admin-badge'>SYSTEM ADMIN</span>", unsafe_allow_html=True)
-        app_mode = st.sidebar.radio("Navigation", ["User Portal", "Admin Command Center"])
+        app_mode = st.sidebar.radio("Realm", ["User Portal", "Admin Command Center"])
     else:
         app_mode = "User Portal"
 
-    if st.sidebar.button("Log Out"):
-        st.session_state.logged_in = False
-        st.rerun()
-
-    # --- 6. ADMIN COMMAND CENTER (Confidential Data) ---
-    if app_mode == "Admin Command Center" and st.session_state.role == "Admin":
+    # --- 5. ADMIN REALM (Confidential) ---
+    if app_mode == "Admin Command Center":
         st.title("🛡️ Admin Command Center")
-        st.write("---")
-        
-        tab1, tab2, tab3 = st.tabs(["👥 Member Management", "📊 System Logs", "⚙️ Site Settings"])
-        
-        with tab1:
-            st.subheader("Confidential User Login Data")
-            if st.session_state.user_db:
-                df = pd.DataFrame(st.session_state.user_db)
-                st.table(df) # Only you see this
-            else:
-                st.info("No logins recorded in this session.")
-
-        with tab2:
-            st.subheader("Live Traffic Metrics")
-            st.metric("Total Logins", len(st.session_state.user_db))
-            st.metric("System Health", "100%", delta="Stable")
-
-        with tab3:
-            st.subheader("Global Site Controls")
-            st.checkbox("Maintenance Mode", value=False)
-            st.checkbox("Disable OTT Links", value=False)
-            st.success("Admin changes are local to this session.")
-
-    # --- 7. NORMAL USER PORTAL (Locked for Subscribers) ---
+        st.subheader("Confidential Login Logs")
+        st.table(pd.DataFrame(st.session_state.user_db))
+        st.metric("Total Sessions", len(st.session_state.user_db))
+    
+    # --- 6. USER PORTAL ---
     else:
-        # Standard Live Status (Simulated for Subscribers)
-        active_users = random.randint(1200, 5000)
-        st.sidebar.markdown(f"""
-        <div class="status-box">
-            <span style='color: #00ff00;'>●</span> <b>Server:</b> Online<br>
-            <span style='color: #00ff00;'>●</span> <b>Active Members:</b> {active_users:,}
-        </div>
-        """, unsafe_allow_html=True)
-
+        st.sidebar.markdown(f"**Live Members:** {random.randint(1200, 5000):,}")
         media_type = st.sidebar.selectbox("Content Type", ["Select", "Movies", "TV Shows"])
         lang_map = {"Telugu": "te", "Hindi": "hi", "English": "en", "Tamil": "ta"}
         sel_lang = st.sidebar.selectbox("Language", ["Select"] + list(lang_map.keys()))
-        eras = ["Select", "2020-2030", "2010-2020", "2000-2010", "1990-2000", "1980-1990"]
-        sel_era = st.sidebar.selectbox("Choose Era", eras)
+        sel_era = st.sidebar.selectbox("Choose Era", ["Select", "2020-2030", "2010-2020", "2000-2010", "1990-2000", "1980-1990"])
 
-        # Caching logic to bare massive traffic
         @st.cache_data(ttl=3600)
-        def get_cached_details(m_id, m_type):
+        def get_details(m_id, m_type):
             try:
                 res = movie_api.details(m_id, append_to_response="credits,watch/providers,videos") if m_type == "Movies" else tv_api.details(m_id, append_to_response="credits,watch/providers,videos")
                 cast = ", ".join([c['name'] for c in res.get('credits', {}).get('cast', [])[:5]])
@@ -149,14 +104,13 @@ else:
                 return cast, ott_n, ott_l, trailer
             except: return "N/A", None, None, None
 
-        # --- MAIN IRS DASHBOARD ---
         st.title("✨ Irfan Recommendation System (IRS)")
-        search_query = st.text_input("🔍 Search Movies...")
+        search_query = st.text_input("🔍 Search...")
         mood_map = {"Happy 😊": [35, 16], "Sad 😢": [18, 10749], "Excited 🤩": [28, 12], "Scared 😨": [27, 53]}
         selected_mood = st.selectbox("🎭 Select Mood", ["Select"] + list(mood_map.keys()))
 
         if st.button("Generate Recommendations 🚀") or search_query:
-            today_obj = datetime.now()
+            today = datetime.now()
             results = []
             try:
                 if search_query:
@@ -177,9 +131,9 @@ else:
                         
                         item_year = int(rd_str.split('-')[0])
                         if not search_query and (item_year < s_year or item_year > e_year): continue
-                        if datetime.strptime(rd_str, '%Y-%m-%d') > today_obj: continue 
+                        if datetime.strptime(rd_str, '%Y-%m-%d') > today: continue 
 
-                        cast, ott_n, ott_l, trailer = get_cached_details(item.id, media_type if media_type != "Select" else "Movies")
+                        cast, ott_n, ott_l, trailer = get_details(item.id, media_type if media_type != "Select" else "Movies")
                         if not ott_n: continue # Strict OTT Filter
 
                         with cols[processed % 4]:
@@ -187,8 +141,9 @@ else:
                             st.subheader(f"{getattr(item, 'title', getattr(item, 'name', ''))[:20]} ({item_year})")
                             with st.expander("👁️ View Details & Play"):
                                 st.markdown(f"<div class='rating-box'>⭐ IMDb {getattr(item, 'vote_average', 0):.1f}/10</div>", unsafe_allow_html=True)
-                                if ott_n: st.markdown(f"<div class='ott-badge'>📺 {ott_n.upper()}</div>", unsafe_allow_html=True)
+                                st.markdown(f"<div class='ott-badge'>📺 {ott_n.upper()}</div>", unsafe_allow_html=True)
                                 if trailer: st.video(trailer)
-                                if ott_n: st.markdown(f'<a href="{ott_l}" target="_blank" class="play-button">▶️ ONE-CLICK PLAY</a>', unsafe_allow_html=True)
+                                st.markdown(f'<a href="{ott_l}" target="_blank" class="play-button">▶️ ONE-CLICK PLAY</a>', unsafe_allow_html=True)
+                                st.write(f"🎭 **Cast:** {cast}")
                         processed += 1
             except Exception as e: st.error(f"Error: {e}")
