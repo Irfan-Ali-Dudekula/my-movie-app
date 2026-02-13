@@ -65,19 +65,16 @@ else:
     lang_map = {"Telugu": "te", "Hindi": "hi", "English": "en", "Tamil": "ta", "Malayalam": "ml", "Korean": "ko"}
     sel_lang = st.sidebar.selectbox("Language", ["Select"] + list(lang_map.keys()))
     
-    # Era Selection
     eras = ["Select", "2020-2030", "2010-2020", "2000-2010", "1990-2000", "1980-1990", "1970-1980"]
     sel_era = st.sidebar.selectbox("Choose Era", eras)
 
     def get_detailed_info(m_id, m_type):
-        """Fixed OTT Detection Logic"""
         try:
             res = movie_api.details(m_id, append_to_response="credits,watch/providers,videos") if m_type == "Movies" else tv_api.details(m_id, append_to_response="credits,watch/providers,videos")
             cast = ", ".join([c['name'] for c in res.get('credits', {}).get('cast', [])[:5]])
             providers = res.get('watch/providers', {}).get('results', {}).get('IN', {})
             
             ott_n, ott_l = None, None
-            # Prioritize Flatrate (Subscription) platforms
             if 'flatrate' in providers:
                 ott_n = providers['flatrate'][0]['provider_name']
                 ott_l = providers.get('link') 
@@ -107,19 +104,26 @@ else:
             st.error("⚠️ ICU Protocol: Filters incomplete.")
         else:
             results = []
-            today = datetime.now().strftime('%Y-%m-%d')
+            today_obj = datetime.now()
+            today_str = today_obj.strftime('%Y-%m-%d')
+            
             try:
                 if search_query:
                     results = list(search_api.multi(search_query))
                 else:
-                    # Fix: Ensure Era Selection filters release dates correctly
                     start_year, end_year = sel_era.split('-')
                     m_ids = mood_map.get(selected_mood.split()[0], [])
-                    p = {'with_original_language': lang_map[sel_lang], 
-                         'primary_release_date.gte': f"{start_year}-01-01", 
-                         'primary_release_date.lte': f"{end_year}-12-31", 
-                         'watch_region': 'IN', 'sort_by': 'popularity.desc', 
-                         'with_genres': "|".join(map(str, m_ids))}
+                    
+                    # Ensure end_date for API is either the era end or "today"
+                    api_end_date = today_str if int(end_year) >= today_obj.year else f"{end_year}-12-31"
+                    
+                    p = {
+                        'with_original_language': lang_map[sel_lang], 
+                        'primary_release_date.gte': f"{start_year}-01-01", 
+                        'primary_release_date.lte': api_end_date, 
+                        'watch_region': 'IN', 'sort_by': 'popularity.desc', 
+                        'with_genres': "|".join(map(str, m_ids))
+                    }
                     
                     for page in range(1, 6):
                         p['page'] = page
@@ -134,9 +138,17 @@ else:
                         if processed >= 100: break
                         if isinstance(item, str): continue
                         
-                        # Fix: Check original release year vs current era selection
-                        rd = getattr(item, 'release_date', getattr(item, 'first_air_date', '9999-12-31'))
-                        if not search_query and (rd < f"{start_year}-01-01" or rd > f"{end_year}-12-31"): continue
+                        # STRICT RELEASE FILTER: Ignore everything with a future date
+                        rd_str = getattr(item, 'release_date', getattr(item, 'first_air_date', '9999-12-31'))
+                        if rd_str == "" or rd_str == "9999-12-31": continue # Discard placeholder dates
+                        
+                        try:
+                            rd_obj = datetime.strptime(rd_str, '%Y-%m-%d')
+                            if rd_obj > today_obj: continue # Skip unreleased movies/episodes
+                        except: continue
+
+                        if not search_query:
+                            if rd_str < f"{start_year}-01-01" or rd_str > api_end_date: continue
 
                         cast, ott_n, ott_l, trailer = get_detailed_info(item.id, media_type if media_type != "Select" else "Movies")
                         
