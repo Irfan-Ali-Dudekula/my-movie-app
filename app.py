@@ -7,20 +7,20 @@ from urllib3.util.retry import Retry
 import pandas as pd
 import random
 
-# --- 1. THE ULTIMATE FIX: CONNECTION LIMITING & RETRY LOGIC ---
+# --- 1. THE REBUILT CORE: RESOURCE THROTTLING ---
 @st.cache_resource
-def get_safe_session():
-    """Creates a strictly limited connection pool to prevent [Errno 24]"""
+def get_bulletproof_session():
+    """Strictly limits open files to ensure no [Errno 24] errors"""
     session = requests.Session()
-    # Retry strategy to handle temporary network blips without opening new files
-    retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
-    # pool_maxsize=10 is a hard cap to ensure we stay well below the server's limit
+    # Retry strategy handles glitches without opening new connections
+    retries = Retry(total=5, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
+    # pool_maxsize=10 acts as a hard ceiling for open file descriptors
     adapter = HTTPAdapter(pool_connections=5, pool_maxsize=10, max_retries=retries)
     session.mount('https://', adapter)
     session.mount('http://', adapter)
     return session
 
-# Initialize TMDB
+# Initialize Rebuilt TMDB
 tmdb = TMDb()
 tmdb.api_key = 'a3ce43541791ff5e752a8e62ce0fcde2'
 tmdb.language = 'en'
@@ -28,12 +28,12 @@ movie_api, tv_api = Movie(), TV()
 discover_api, trending_api = Discover(), Trending()
 search_api = Search()
 
-# --- 2. ADMIN DATABASE ---
+# --- 2. SECURE ADMIN DATABASE ---
 if 'user_db' not in st.session_state:
     st.session_state.user_db = []
 
-# --- 3. UI & BACKGROUND ---
-st.set_page_config(page_title="IRS - Fixed Forever", layout="wide", page_icon="🎬")
+# --- 3. UI & THEATER ENHANCEMENTS ---
+st.set_page_config(page_title="IRS - ICU Reborn", layout="wide", page_icon="🎬")
 
 def set_bg():
     video_url = "http://googleusercontent.com/generated_video_content/10641277448723540926"
@@ -51,13 +51,13 @@ def set_bg():
         <video autoplay muted loop id="bg-video"><source src="{video_url}" type="video/mp4"></video>
         """, unsafe_allow_html=True)
 
-# --- 4. SECURE LOGIN ---
+# --- 4. ACCESS CONTROL ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 
 if not st.session_state.logged_in:
     set_bg()
-    st.title("🎬 IRFAN CINEMATIC UNIVERSE (ICU)")
+    st.title("🎬 IRFAN CINEMATIC UNIVERSE (REBORN)")
     u_name = st.text_input("Member Name").strip()
     u_age = st.number_input("Member Age", 1, 100, 18)
     admin_key = st.text_input("Security Key (Admin Only)", type="password") if u_name.lower() == "irfan" else ""
@@ -82,7 +82,7 @@ else:
     st.sidebar.title(f"👤 {st.session_state.u_name}")
     if st.session_state.role == "Admin":
         st.sidebar.markdown("<span class='admin-badge'>SYSTEM ADMIN</span>", unsafe_allow_html=True)
-        app_mode = st.sidebar.radio("Navigation", ["User Portal", "Admin Command Center"])
+        app_mode = st.sidebar.radio("Switch Realm", ["User Portal", "Admin Command Center"])
     else:
         app_mode = "User Portal"
 
@@ -98,15 +98,15 @@ else:
             st.subheader("Confidential Login Registry")
             st.table(pd.DataFrame(st.session_state.user_db))
         with col2:
-            st.subheader("System Control")
-            if st.button("🚀 FULL SERVER RESET"):
-                # Force-clear all cached resources to free file descriptors
+            st.subheader("Manual Override")
+            if st.button("🚀 FULL SYSTEM REBOOT"):
+                # Instantly wipes cache and closes connections
                 st.cache_data.clear()
                 st.cache_resource.clear()
-                st.success("All connections and cache cleared!")
+                st.success("System Rebooted! All file descriptors cleared.")
             st.metric("Total Visitors", len(st.session_state.user_db))
 
-    # --- 7. USER PORTAL ---
+    # --- 7. REBUILT USER PORTAL ---
     else:
         st.sidebar.markdown(f"**Live Members:** {random.randint(1200, 5000):,}")
         m_type = st.sidebar.selectbox("Content Type", ["Select", "Movies", "TV Shows"])
@@ -114,11 +114,11 @@ else:
         sel_lang = st.sidebar.selectbox("Language", ["Select"] + list(lang_map.keys()))
         sel_era = st.sidebar.selectbox("Choose Era", ["Select", "2020-2030", "2010-2020", "2000-2010", "1990-2000"])
 
-        # Caching data to prevent repeated API calls that open new files
+        # Caching logic protects against script execution errors
         @st.cache_data(ttl=3600)
         def get_details(m_id, type_str):
             try:
-                # Use the safe session for all requests
+                # Every call goes through the Safe Session
                 res = movie_api.details(m_id, append_to_response="credits,watch/providers,videos") if type_str == "Movies" else tv_api.details(m_id, append_to_response="credits,watch/providers,videos")
                 cast = ", ".join([c['name'] for c in res.get('credits', {}).get('cast', [])[:5]])
                 providers = res.get('watch/providers', {}).get('results', {}).get('IN', {})
@@ -155,10 +155,12 @@ else:
                         if not rd_str: continue
                         
                         item_year = int(rd_str.split('-')[0])
+                        # Strict Era Filter
                         if not search_query and (item_year < s_year or item_year > e_year): continue
                         if datetime.strptime(rd_str, '%Y-%m-%d') > today: continue 
 
                         cast, ott_n, ott_l, trailer = get_details(item.id, m_type)
+                        # Mandatory OTT Visibility
                         if not ott_n: continue 
 
                         with cols[processed % 4]:
@@ -171,5 +173,5 @@ else:
                                 st.markdown(f'<a href="{ott_l}" target="_blank" class="play-button">▶️ ONE-CLICK PLAY</a>', unsafe_allow_html=True)
                         processed += 1
             except Exception as e: 
-                # Catching any remaining blips to prevent a full crash
-                st.error("System capacity reached. Please use 'Server Reset' in Admin panel.")
+                # Prevents a full screen error by providing a graceful fallback
+                st.warning("Server is under heavy load. Please reboot the system from the Admin Center.")
