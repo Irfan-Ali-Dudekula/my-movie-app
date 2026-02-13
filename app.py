@@ -6,14 +6,14 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import pandas as pd
 
-# --- 1. CRITICAL INITIALIZATION (Fixes image_e69a3b.png and image_dc3040.png) ---
-# This block must run before anything else to prevent AttributeError crashes
+# --- 1. CRITICAL INITIALIZATION (Fixes AttributeError crashes) ---
+# Ensures every variable exists before the app tries to read them
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 if 'role' not in st.session_state:
-    st.session_state.role = "Guest" # Prevents crash on line 89
+    st.session_state.role = "Guest" 
 if 'u_age' not in st.session_state:
-    st.session_state.u_age = 18 # Prevents crash on line 106
+    st.session_state.u_age = 18 
 if 'u_name' not in st.session_state:
     st.session_state.u_name = "Guest"
 if 'user_db' not in st.session_state:
@@ -54,7 +54,7 @@ def set_bg():
         <video autoplay muted loop id="bg-video"><source src="{video_url}" type="video/mp4"></video>
         """, unsafe_allow_html=True)
 
-# --- 4. DATA EXTRACTION ---
+# --- 4. DATA EXTRACTION (Real Plots & Cast) ---
 @st.cache_data(ttl=3600)
 def get_real_details(m_id, type_str):
     try:
@@ -66,8 +66,7 @@ def get_real_details(m_id, type_str):
         ott_n, ott_l = None, None
         for mode in ['flatrate', 'free', 'ads']:
             if mode in providers:
-                ott_n = providers[mode][0]['provider_name']
-                ott_l = providers.get('link')
+                ott_n, ott_l = providers[mode][0]['provider_name'], providers.get('link')
                 break
         trailer = next((f"https://www.youtube.com/watch?v={v['key']}" for v in getattr(res, 'videos', {}).get('results', []) if v['site'] == 'YouTube'), None)
         return plot, cast, ott_n, ott_l, trailer
@@ -91,6 +90,7 @@ if not st.session_state.logged_in:
                     st.stop()
             else:
                 st.session_state.role = "Subscriber"
+            
             st.session_state.logged_in, st.session_state.u_name, st.session_state.u_age = True, u_name, u_age_in
             st.session_state.user_db.append({"User": u_name, "Age": u_age_in, "Role": st.session_state.role, "Time": datetime.now().strftime("%H:%M")})
             st.rerun()
@@ -98,12 +98,12 @@ else:
     set_bg()
     st.sidebar.title(f"👤 {st.session_state.u_name}")
     
-    # SAFE CHECK: Navigation
+    # Safe check for Navigation
     if st.session_state.role == "Admin":
         app_mode = st.sidebar.radio("Navigation", ["User Portal", "Admin Command Center"])
     else:
         app_mode = "User Portal"
-
+        
     if st.sidebar.button("Log Out"):
         st.session_state.logged_in = False
         st.rerun()
@@ -113,8 +113,9 @@ else:
         if st.button("🚀 FULL SYSTEM REBOOT"):
             st.cache_data.clear()
             st.cache_resource.clear()
-            st.success("Cache Cleared!")
+            st.success("System Rebooted!")
         st.table(pd.DataFrame(st.session_state.user_db))
+    
     else:
         # --- USER PORTAL ---
         st.sidebar.header("Filter Content")
@@ -122,9 +123,15 @@ else:
         mood_map = {"Laughter": 35, "Fear": 27, "Excitement": 28, "Mystery": 9648, "Emotional": 18, "Adventurous": 12}
         if st.session_state.u_age >= 18: mood_map["Love/Romantic"] = 10749
         sel_mood = st.sidebar.selectbox("Current Emotion", ["Select"] + list(mood_map.keys()))
-        lang_map = {"Telugu": "te", "Hindi": "hi", "Tamil": "ta", "English": "en", "Malayalam": "ml", "Kannada": "kn", "Korean": "ko"}
+        
+        # ADDED MORE LANGUAGES
+        lang_map = {
+            "Telugu": "te", "Hindi": "hi", "Tamil": "ta", "Malayalam": "ml", "Kannada": "kn",
+            "Bengali": "bn", "Marathi": "mr", "Punjabi": "pa", "English": "en", 
+            "Korean": "ko", "Japanese": "ja", "French": "fr", "Spanish": "es"
+        }
         sel_lang = st.sidebar.selectbox("Language", ["Select"] + sorted(list(lang_map.keys())))
-        sel_era = st.sidebar.selectbox("Era", ["Select", "2020-2030", "2010-2020", "2000-2010", "1990-2000"])
+        sel_era = st.sidebar.selectbox("Era", ["Select", "2020-2030", "2010-2020", "2000-2010"])
 
         st.title("🎬 IRFAN CINEMATIC UNIVERSE (ICU)")
         st.subheader("Mood Based Movie Recommendation System")
@@ -134,15 +141,32 @@ else:
             results = []
             try:
                 if search_query:
-                    # RECTIFIED: Validate search items
+                    # VALIDATED OBJECT SEARCH
                     results = [r for r in search_api.multi(search_query) if hasattr(r, 'id')]
                 elif sel_mood != "Select" and sel_lang != "Select" and sel_era != "Select":
                     s_year, e_year = map(int, sel_era.split('-'))
-                    p = {'with_original_language': lang_map[sel_lang], 'primary_release_date.gte': f"{s_year}-01-01", 'primary_release_date.lte': f"{e_year}-12-31", 'with_genres': mood_map[sel_mood], 'sort_by': 'popularity.desc', 'include_adult': st.session_state.u_age >= 18}
+                    p = {
+                        'with_original_language': lang_map[sel_lang], 
+                        'primary_release_date.gte': f"{s_year}-01-01", 
+                        'primary_release_date.lte': f"{e_year}-12-31", 
+                        'with_genres': mood_map[sel_mood], 
+                        'sort_by': 'popularity.desc', 
+                        'include_adult': st.session_state.u_age >= 18
+                    }
+                    
+                    # SMART FALLBACK: Tries India OTT first, then general search
+                    p_strict = {**p, 'watch_region': 'IN', 'with_watch_monetization_types': 'flatrate|free|ads'}
                     for page in range(1, 5):
-                        p['page'] = page
-                        results.extend(list(discover_api.discover_movies(p) if m_type == "Movies" else discover_api.discover_tv_shows(p)))
+                        p_strict['page'] = page
+                        results.extend(list(discover_api.discover_movies(p_strict) if m_type == "Movies" else discover_api.discover_tv_shows(p_strict)))
                         if len(results) >= 75: break
+                    
+                    if not results:
+                        st.info("Showing popular titles (Specific India streaming links not found).")
+                        for page in range(1, 5):
+                            p['page'] = page
+                            results.extend(list(discover_api.discover_movies(p) if m_type == "Movies" else discover_api.discover_tv_shows(p)))
+                            if len(results) >= 75: break
 
                 if results:
                     cols = st.columns(3)
@@ -150,7 +174,6 @@ else:
                     for item in results:
                         if processed >= 75: break
                         
-                        # --- THE FIX: Object Validation ---
                         m_id = getattr(item, 'id', None)
                         if not m_id: continue
 
@@ -160,8 +183,8 @@ else:
                         with cols[processed % 3]:
                             st.image(f"https://image.tmdb.org/t/p/w500{getattr(item, 'poster_path', '')}")
                             st.subheader(f"{getattr(item, 'title', getattr(item, 'name', ''))[:20]}")
-                            with st.expander("📖 View Real Plot & Cast"):
-                                st.markdown(f"**Plot:** {plot}")
+                            with st.expander("📖 Plot & Cast"):
+                                st.write(f"**Plot:** {plot}")
                                 st.markdown(f"**Cast:** <span class='cast-text'>{cast}</span>", unsafe_allow_html=True)
                             if ott_n: st.markdown(f"<div class='ott-badge'>📺 {ott_n.upper()}</div>", unsafe_allow_html=True)
                             if trailer: st.video(trailer)
