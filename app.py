@@ -41,7 +41,7 @@ def set_bg():
         <div class="ceiling-lights"></div>
         """, unsafe_allow_html=True)
 
-# --- 3. LOGIN GATE (ICU) ---
+# --- 3. LOGIN GATE ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 
@@ -54,9 +54,8 @@ if not st.session_state.logged_in:
         if u_name:
             st.session_state.logged_in, st.session_state.u_name, st.session_state.u_age = True, u_name, u_age
             st.rerun()
-        else: st.error("Please enter your name.")
 else:
-    # --- 4. MAIN INTERFACE (IRS) ---
+    # --- 4. MAIN INTERFACE ---
     st.sidebar.title(f"👤 {st.session_state.u_name}")
     if st.sidebar.button("Log Out"):
         st.session_state.logged_in = False
@@ -65,17 +64,20 @@ else:
     media_type = st.sidebar.selectbox("Content Type", ["Select", "Movies", "TV Shows"])
     lang_map = {"Telugu": "te", "Hindi": "hi", "English": "en", "Tamil": "ta", "Malayalam": "ml", "Korean": "ko"}
     sel_lang = st.sidebar.selectbox("Language", ["Select"] + list(lang_map.keys()))
-    sel_era = st.sidebar.selectbox("Choose Era", ["Select", "2020-2030", "2010-2020", "2000-2010", "1990-2000", "1980-1990", "1970-1980"])
+    
+    # Era Selection
+    eras = ["Select", "2020-2030", "2010-2020", "2000-2010", "1990-2000", "1980-1990", "1970-1980"]
+    sel_era = st.sidebar.selectbox("Choose Era", eras)
 
     def get_detailed_info(m_id, m_type):
-        """Fetches Cast, OTT, and Trailer Links"""
+        """Fixed OTT Detection Logic"""
         try:
             res = movie_api.details(m_id, append_to_response="credits,watch/providers,videos") if m_type == "Movies" else tv_api.details(m_id, append_to_response="credits,watch/providers,videos")
             cast = ", ".join([c['name'] for c in res.get('credits', {}).get('cast', [])[:5]])
             providers = res.get('watch/providers', {}).get('results', {}).get('IN', {})
             
-            # OTT Availability
             ott_n, ott_l = None, None
+            # Prioritize Flatrate (Subscription) platforms
             if 'flatrate' in providers:
                 ott_n = providers['flatrate'][0]['provider_name']
                 ott_l = providers.get('link') 
@@ -83,13 +85,11 @@ else:
                 ott_n = f"{providers['ads'][0]['provider_name']} (Free)"
                 ott_l = providers.get('link')
             
-            # YouTube Trailer Logic
             trailer_url = None
             for video in res.get('videos', {}).get('results', []):
                 if video['type'] == 'Trailer' and video['site'] == 'YouTube':
                     trailer_url = f"https://www.youtube.com/watch?v={video['key']}"
                     break
-                    
             return cast, ott_n, ott_l, trailer_url
         except: return "N/A", None, None, None
 
@@ -104,7 +104,7 @@ else:
 
     if st.button("Generate Recommendations 🚀") or search_query:
         if not search_query and not ready:
-            st.error("⚠️ ICU Protocol: Please select ALL filters!")
+            st.error("⚠️ ICU Protocol: Filters incomplete.")
         else:
             results = []
             today = datetime.now().strftime('%Y-%m-%d')
@@ -112,9 +112,15 @@ else:
                 if search_query:
                     results = list(search_api.multi(search_query))
                 else:
+                    # Fix: Ensure Era Selection filters release dates correctly
                     start_year, end_year = sel_era.split('-')
                     m_ids = mood_map.get(selected_mood.split()[0], [])
-                    p = {'with_original_language': lang_map[sel_lang], 'primary_release_date.gte': f"{start_year}-01-01", 'primary_release_date.lte': f"{end_year}-12-31", 'watch_region': 'IN', 'sort_by': 'popularity.desc', 'with_genres': "|".join(map(str, m_ids))}
+                    p = {'with_original_language': lang_map[sel_lang], 
+                         'primary_release_date.gte': f"{start_year}-01-01", 
+                         'primary_release_date.lte': f"{end_year}-12-31", 
+                         'watch_region': 'IN', 'sort_by': 'popularity.desc', 
+                         'with_genres': "|".join(map(str, m_ids))}
+                    
                     for page in range(1, 6):
                         p['page'] = page
                         page_data = list(discover_api.discover_movies(p) if media_type == "Movies" else discover_api.discover_tv_shows(p))
@@ -127,8 +133,10 @@ else:
                     for item in results:
                         if processed >= 100: break
                         if isinstance(item, str): continue
+                        
+                        # Fix: Check original release year vs current era selection
                         rd = getattr(item, 'release_date', getattr(item, 'first_air_date', '9999-12-31'))
-                        if rd > today or (st.session_state.u_age < 18 and getattr(item, 'adult', False)): continue
+                        if not search_query and (rd < f"{start_year}-01-01" or rd > f"{end_year}-12-31"): continue
 
                         cast, ott_n, ott_l, trailer = get_detailed_info(item.id, media_type if media_type != "Select" else "Movies")
                         
@@ -141,11 +149,8 @@ else:
                                 if ott_n:
                                     st.markdown(f"<div class='ott-badge'>📺 {ott_n.upper()}</div>", unsafe_allow_html=True)
                                 
-                                # Integrated YouTube Trailer
-                                if trailer:
-                                    st.video(trailer)
-                                else:
-                                    st.info("Trailer not available.")
+                                if trailer: st.video(trailer)
+                                else: st.info("Trailer not available.")
                                     
                                 st.write(f"🎭 **Cast:** {cast}")
                                 st.write(getattr(item, 'overview', ''))
