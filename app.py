@@ -113,18 +113,18 @@ else:
 
         @st.cache_data(ttl=3600)
         def get_deep_details(m_id, type_str):
-            """Fetches Plot, Cast, OTT, and Trailers"""
             try:
                 res = movie_api.details(m_id, append_to_response="credits,watch/providers,videos") if type_str == "Movies" else tv_api.details(m_id, append_to_response="credits,watch/providers,videos")
-                
                 plot = res.overview if res.overview else "No plot available."
                 cast = ", ".join([c['name'] for c in res.credits['cast'][:5]]) if 'credits' in res else "N/A"
-                
                 providers = res.get('watch/providers', {}).get('results', {}).get('IN', {})
                 ott_n, ott_l = None, None
                 if 'flatrate' in providers:
-                    ott_n = providers['flatrate'][0]['provider_name']
-                    ott_l = providers.get('link') # Direct redirection link
+                    ott_n, ott_l = providers['flatrate'][0]['provider_name'], providers.get('link')
+                elif 'free' in providers:
+                    ott_n, ott_l = f"{providers['free'][0]['provider_name']} (Free)", providers.get('link')
+                elif 'ads' in providers:
+                    ott_n, ott_l = f"{providers['ads'][0]['provider_name']} (With Ads)", providers.get('link')
                 
                 trailer = next((f"https://www.youtube.com/watch?v={v['key']}" for v in res.get('videos', {}).get('results', []) if v['type'] == 'Trailer'), None)
                 return plot, cast, ott_n, ott_l, trailer
@@ -141,12 +141,14 @@ else:
                     results = list(search_api.multi(search_query))
                 elif m_type != "Select" and sel_lang != "Select" and sel_era != "Select" and sel_mood != "Select":
                     s_year, e_year = map(int, sel_era.split('-'))
+                    # RECTIFIED PARAMETERS: Expanded monetization types to avoid empty results
                     p = {
                         'with_original_language': lang_map[sel_lang], 
                         'primary_release_date.gte': f"{s_year}-01-01", 
                         'primary_release_date.lte': f"{e_year}-12-31", 
                         'with_genres': mood_map[sel_mood],
-                        'watch_region': 'IN', 
+                        'watch_region': 'IN',
+                        'with_watch_monetization_types': 'flatrate|free|ads',
                         'sort_by': 'popularity.desc'
                     }
                     results = list(discover_api.discover_movies(p) if m_type == "Movies" else discover_api.discover_tv_shows(p))
@@ -163,20 +165,22 @@ else:
                         if not search_query and (item_year < s_year or item_year > e_year): continue
 
                         plot, cast, ott_n, ott_l, trailer = get_deep_details(item.id, m_type)
-                        if not ott_n: continue # Ensure OTT availability
-
-                        with cols[processed % 3]:
-                            st.image(f"https://image.tmdb.org/t/p/w500{getattr(item, 'poster_path', '')}")
-                            st.subheader(f"{getattr(item, 'title', getattr(item, 'name', ''))[:20]} ({item_year})")
-                            
-                            with st.expander("📖 Plot & Details"):
-                                st.write(f"**Plot:** {plot}")
-                                st.markdown(f"**Cast:** <span class='cast-text'>{cast}</span>", unsafe_allow_html=True)
-                            
-                            st.markdown(f"<div class='ott-badge'>📺 Available on: {ott_n.upper()}</div>", unsafe_allow_html=True)
-                            if trailer: st.video(trailer)
-                            if ott_l: st.markdown(f'<a href="{ott_l}" target="_blank" class="play-button">▶️ OPEN IN {ott_n.upper()}</a>', unsafe_allow_html=True)
-                        processed += 1
+                        
+                        # Show result if we found OTT details
+                        if ott_n:
+                            with cols[processed % 3]:
+                                st.image(f"https://image.tmdb.org/t/p/w500{getattr(item, 'poster_path', '')}")
+                                st.subheader(f"{getattr(item, 'title', getattr(item, 'name', ''))[:20]} ({item_year})")
+                                with st.expander("📖 Plot & Details"):
+                                    st.write(f"**Plot:** {plot}")
+                                    st.markdown(f"**Cast:** <span class='cast-text'>{cast}</span>", unsafe_allow_html=True)
+                                st.markdown(f"<div class='ott-badge'>📺 {ott_n.upper()}</div>", unsafe_allow_html=True)
+                                if trailer: st.video(trailer)
+                                if ott_l: st.markdown(f'<a href="{ott_l}" target="_blank" class="play-button">▶️ WATCH NOW</a>', unsafe_allow_html=True)
+                            processed += 1
+                    
+                    if processed == 0:
+                        st.warning("No streaming results found for this specific Era/Language combo. Try a different Era!")
                 else:
-                    st.info("No content found. Try adjusting your filters!")
-            except Exception as e: st.warning("Please wait 5 seconds and click again.")
+                    st.info("No content found. Try adjusting your mood or language!")
+            except Exception as e: st.warning("Connection busy. Please wait 5 seconds and click again.")
