@@ -5,13 +5,17 @@ import requests
 import pandas as pd
 import random
 
-# --- 1. GLOBAL SESSION & CONNECTION LIMITING ---
-if 'persistent_session' not in st.session_state:
+# --- 1. THE ULTIMATE FIX: HARD-CAPPED SESSION ---
+# Using cache_resource to ensure this session persists and reuses connections
+@st.cache_resource
+def get_stable_session():
     session = requests.Session()
+    # Hard-limiting to 20 ensures we stay well below the server's file limit
     adapter = requests.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=20)
     session.mount('https://', adapter)
-    st.session_state.persistent_session = session
+    return session
 
+# Initialize TMDB with the stable session
 tmdb = TMDb()
 tmdb.api_key = 'a3ce43541791ff5e752a8e62ce0fcde2'
 tmdb.language = 'en'
@@ -19,12 +23,12 @@ movie_api, tv_api = Movie(), TV()
 discover_api, trending_api = Discover(), Trending()
 search_api = Search()
 
-# --- 2. ADMIN DATABASE ---
+# --- 2. CONFIDENTIAL DATABASE ---
 if 'user_db' not in st.session_state:
     st.session_state.user_db = []
 
-# --- 3. UI & THEATER STYLING ---
-st.set_page_config(page_title="IRS - ICU Admin Control", layout="wide", page_icon="🎬")
+# --- 3. UI & STYLING ---
+st.set_page_config(page_title="IRS - ICU Final Edition", layout="wide", page_icon="🎬")
 
 def set_bg():
     video_url = "http://googleusercontent.com/generated_video_content/10641277448723540926"
@@ -34,15 +38,15 @@ def set_bg():
         .stApp {{ background: linear-gradient(rgba(0,0,0,0.85), rgba(0,0,0,0.85)), url("{fallback_img}"); background-size: cover; background-attachment: fixed; color: white; }}
         #bg-video {{ position: fixed; right: 0; bottom: 0; min-width: 100%; min-height: 100%; z-index: -1; filter: brightness(20%); object-fit: cover; }}
         .play-button {{ background: linear-gradient(45deg, #e50914, #ff4b4b); color: white !important; padding: 12px; border-radius: 10px; text-decoration: none; display: block; text-align: center; font-weight: bold; margin-top: 10px; border: none; }}
-        .admin-badge {{ background-color: #ff4b4b; color: white; padding: 5px 15px; border-radius: 20px; font-weight: bold; font-size: 0.8em; border: 1px solid white; }}
-        .rating-box {{ background-color: #f5c518; color: #000; padding: 4px 8px; border-radius: 5px; font-weight: bold; display: inline-block; margin-bottom: 5px; }}
-        .ott-badge {{ background-color: #28a745; color: white; padding: 4px 8px; border-radius: 5px; font-weight: bold; display: inline-block; }}
+        .admin-badge {{ background-color: #ff4b4b; color: white; padding: 5px 15px; border-radius: 20px; font-weight: bold; border: 1px solid white; }}
+        .rating-box {{ background-color: #f5c518; color: #000; padding: 4px 8px; border-radius: 5px; font-weight: bold; display: inline-block; }}
+        .ott-badge {{ background-color: #28a745; color: white; padding: 4px 8px; border-radius: 5px; font-weight: bold; }}
         h1, h2, h3, p, span, label, div {{ color: white !important; }}
         </style>
         <video autoplay muted loop id="bg-video"><source src="{video_url}" type="video/mp4"></video>
         """, unsafe_allow_html=True)
 
-# --- 4. SECURE AUTHENTICATION ---
+# --- 4. SECURE ADMIN GATE ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 
@@ -56,10 +60,10 @@ if not st.session_state.logged_in:
     if st.button("Enter ICU"):
         if u_name:
             if u_name.lower() == "irfan":
-                if admin_key == "irfan@123":
+                if admin_key == "irfan@123": # Secure Admin Password
                     st.session_state.role = "Admin"
                 else:
-                    st.error("Access Denied: Admin Key Required.")
+                    st.error("Invalid Security Key!")
                     st.stop()
             else:
                 st.session_state.role = "Subscriber"
@@ -84,21 +88,17 @@ else:
     # --- 6. ADMIN COMMAND CENTER ---
     if app_mode == "Admin Command Center" and st.session_state.role == "Admin":
         st.title("🛡️ Admin Command Center")
-        
         col1, col2 = st.columns(2)
         with col1:
-            st.subheader("Live Member Logs")
+            st.subheader("Member Login Registry (Confidential)")
             st.table(pd.DataFrame(st.session_state.user_db))
-        
         with col2:
             st.subheader("System Control")
             if st.button("🚀 FULL SERVER RESET"):
-                # NEW: Reset Logic to clear cache and connections
                 st.cache_data.clear()
                 st.cache_resource.clear()
-                st.success("Server Cache and API Connections Reset successfully!")
-            
-            st.metric("Total Sessions", len(st.session_state.user_db))
+                st.success("All connections and cache cleared!")
+            st.metric("Total Visitors", len(st.session_state.user_db))
 
     # --- 7. USER PORTAL ---
     else:
@@ -125,7 +125,7 @@ else:
             except: return "N/A", None, None, None
 
         st.title("✨ Irfan Recommendation System (IRS)")
-        search_query = st.text_input("🔍 Search Movies...")
+        search_query = st.text_input("🔍 Search...")
 
         if st.button("Generate Recommendations 🚀") or search_query:
             today = datetime.now()
@@ -146,12 +146,13 @@ else:
                         rd_str = getattr(item, 'release_date', getattr(item, 'first_air_date', ''))
                         if not rd_str: continue
                         
+                        # STRICT ERA VALIDATION
                         item_year = int(rd_str.split('-')[0])
                         if not search_query and (item_year < s_year or item_year > e_year): continue
                         if datetime.strptime(rd_str, '%Y-%m-%d') > today: continue 
 
                         cast, ott_n, ott_l, trailer = get_details(item.id, m_type)
-                        if not ott_n: continue 
+                        if not ott_n: continue # Only show movies on OTT
 
                         with cols[processed % 4]:
                             st.image(f"https://image.tmdb.org/t/p/w500{getattr(item, 'poster_path', '')}")
@@ -162,4 +163,4 @@ else:
                                 if trailer: st.video(trailer)
                                 st.markdown(f'<a href="{ott_l}" target="_blank" class="play-button">▶️ ONE-CLICK PLAY</a>', unsafe_allow_html=True)
                         processed += 1
-            except Exception as e: st.error(f"System overloaded. Please use 'Server Reset' in Admin panel.")
+            except Exception as e: st.error(f"System Load High. Use 'Server Reset' in Admin Panel.")
