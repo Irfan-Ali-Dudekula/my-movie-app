@@ -65,25 +65,18 @@ else:
         except: return default
 
     def get_detailed_info(m_id, m_type):
-        """Fetches Cast, OTT Providers (Strictly released content)."""
         try:
             res = movie_api.details(m_id, append_to_response="credits,watch/providers") if m_type == "Movies" else tv_api.details(m_id, append_to_response="credits,watch/providers")
-            
-            # Cast
             cast_list = [c['name'] for c in res.get('credits', {}).get('cast', [])[:5]]
             cast_str = ", ".join(cast_list) if cast_list else "N/A"
-            
-            # OTT Detection
             providers = res.get('watch/providers', {}).get('results', {}).get('IN', {})
             ott_name, ott_link = None, None
-            
             if 'flatrate' in providers:
                 ott_name = providers['flatrate'][0]['provider_name']
                 ott_link = providers.get('link') 
             elif 'ads' in providers:
                 ott_name = f"{providers['ads'][0]['provider_name']} (Free)"
                 ott_link = providers.get('link')
-                
             return cast_str, ott_name, ott_link
         except: return "N/A", None, None
 
@@ -96,22 +89,25 @@ else:
     if st.button("Find Available Shows") or search_query:
         results = []
         today = datetime.now().strftime('%Y-%m-%d')
-        
-        # Discovery parameters with strict release date filter
         p = {
             'with_original_language': lang_map[sel_lang],
-            'primary_release_date.lte': today, # Only released movies
-            'air_date.lte': today, # Only released TV shows
-            'with_watch_monetization_types': 'flatrate|ads', # Only show content on OTT
+            'primary_release_date.lte': today,
+            'air_date.lte': today,
             'watch_region': 'IN',
             'sort_by': 'popularity.desc'
         }
 
         if search_query:
-            results = search_api.multi(search_query)
+            results = list(search_api.multi(search_query))
         else:
             m_ids = mood_map.get(selected_mood, [])
             if m_ids: p['with_genres'] = "|".join(map(str, m_ids))
+            results = list(discover_api.discover_movies(p) if media_type == "Movies" else discover_api.discover_tv_shows(p))
+
+        # --- SMART FALLBACK ---
+        if not results:
+            st.warning("No exact matches found for your filter. Showing popular choices instead!")
+            p.pop('with_genres', None) # Remove the mood filter to find something
             results = list(discover_api.discover_movies(p) if media_type == "Movies" else discover_api.discover_tv_shows(p))
 
         if results:
@@ -121,21 +117,22 @@ else:
                 if processed >= 20: break
                 if isinstance(item, str): continue
                 
-                # Double-check release status and age
-                release_date = get_safe_val(item, 'release_date', get_safe_val(item, 'first_air_date', '9999-12-31'))
-                if release_date > today: continue 
-                if not is_adult and get_safe_val(item, 'adult', False): continue
+                # Filter for release date and age
+                rd = get_safe_val(item, 'release_date', get_safe_val(item, 'first_air_date', '9999-12-31'))
+                if rd > today or (not is_adult and get_safe_val(item, 'adult', False)): continue
 
                 cast, ott_n, ott_l = get_detailed_info(get_safe_val(item, 'id'), media_type)
                 
-                # Requirement: Only show if OTT provider exists
-                if ott_n and ott_l:
-                    with main_cols[processed % 4]:
-                        st.image(f"https://image.tmdb.org/t/p/w500{get_safe_val(item, 'poster_path')}")
-                        st.subheader(get_safe_val(item, 'title', get_safe_val(item, 'name', ''))[:25])
-                        with st.expander("Details & Streaming"):
-                            st.write(f"📖 **Plot:** {get_safe_val(item, 'overview')[:150]}...")
-                            st.markdown(f"<p class='cast-text'>🎭 Cast: {cast}</p>", unsafe_allow_html=True)
+                # Show results even if OTT link is missing, but label it clearly
+                with main_cols[processed % 4]:
+                    st.image(f"https://image.tmdb.org/t/p/w500{get_safe_val(item, 'poster_path')}")
+                    st.subheader(get_safe_val(item, 'title', get_safe_val(item, 'name', ''))[:25])
+                    with st.expander("Details & Streaming"):
+                        st.write(f"📖 **Plot:** {get_safe_val(item, 'overview')[:150]}...")
+                        st.markdown(f"<p class='cast-text'>🎭 Cast: {cast}</p>", unsafe_allow_html=True)
+                        if ott_n:
                             st.success(f"📺 Available on: **{ott_n}**")
                             st.markdown(f'<a href="{ott_l}" target="_blank" class="ott-link">▶️ WATCH ON {ott_n.upper()}</a>', unsafe_allow_html=True)
-                    processed += 1
+                        else:
+                            st.warning("Check YouTube or Local Cable for availability.")
+                processed += 1
