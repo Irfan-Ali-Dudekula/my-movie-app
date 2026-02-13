@@ -7,28 +7,32 @@ from urllib3.util.retry import Retry
 import pandas as pd
 import random
 
-# --- 1. CORE STABILIZATION (Stops [Errno 24]) ---
+# --- 1. CORE STABILIZATION (Stops [Errno 24] crashes) ---
 @st.cache_resource
 def get_bulletproof_session():
-    """Strictly caps network connections to prevent OSError(24)"""
+    """Strictly limits open files to prevent OSError(24) and buffering"""
     session = requests.Session()
+    # Retry logic handles network blips without opening new connections
     retries = Retry(total=5, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
-    # pool_maxsize=5 is the physical ceiling that stops the crash
+    # pool_maxsize=5 is a hard limit to stay below the server's file limit
     adapter = HTTPAdapter(pool_connections=5, pool_maxsize=5, max_retries=retries)
     session.mount('https://', adapter)
     session.mount('http://', adapter)
     return session
 
-# Initialize TMDB with the fix
+# Initialize TMDB
 tmdb = TMDb()
 tmdb.api_key = 'a3ce43541791ff5e752a8e62ce0fcde2'
-tmdb.session = get_bulletproof_session() # ACTIVATION LINE
+
+# CRITICAL FIX: Link the stabilized session to the library
+tmdb.session = get_bulletproof_session() 
+
 tmdb.language = 'en'
 movie_api, tv_api = Movie(), TV()
 discover_api, trending_api = Discover(), Trending()
 search_api = Search()
 
-# --- 2. DATABASE & UI SETUP ---
+# --- 2. ADMIN DATABASE & UI SETUP ---
 if 'user_db' not in st.session_state:
     st.session_state.user_db = []
 
@@ -59,12 +63,15 @@ if not st.session_state.logged_in:
     st.title("🎬 IRFAN CINEMATIC UNIVERSE (REBORN)")
     u_name = st.text_input("Member Name").strip()
     u_age = st.number_input("Member Age", 1, 100, 18)
+    
+    # Password box appears only for 'irfan'
     admin_key = st.text_input("Security Key (Admin Only)", type="password") if u_name.lower() == "irfan" else ""
 
     if st.button("Enter ICU"):
         if u_name:
             if u_name.lower() == "irfan":
-                if admin_key == "irfan@123": # Your Password
+                # UPDATED SECURITY KEY
+                if admin_key == "Irfan@1403": 
                     st.session_state.role = "Admin"
                 else:
                     st.error("Invalid Security Key!")
@@ -89,16 +96,22 @@ else:
         st.session_state.logged_in = False
         st.rerun()
 
-    # --- 5. ADMIN COMMAND CENTER (Only for Irfan) ---
-    if app_mode == "Admin Command Center":
+    # --- 5. ADMIN COMMAND CENTER ---
+    if app_mode == "Admin Command Center" and st.session_state.role == "Admin":
         st.title("🛡️ Admin Command Center")
-        if st.button("🚀 FULL SYSTEM REBOOT"):
-            st.cache_data.clear()
-            st.cache_resource.clear()
-            st.success("Connections and Cache Cleared!")
-        st.subheader("Member Login Registry (Confidential)")
-        st.table(pd.DataFrame(st.session_state.user_db))
-    
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("Confidential Login Registry")
+            st.table(pd.DataFrame(st.session_state.user_db))
+        with col2:
+            st.subheader("Manual Control")
+            if st.button("🚀 FULL SYSTEM REBOOT"):
+                # Force-kills all connections and clears memory
+                st.cache_data.clear()
+                st.cache_resource.clear()
+                st.success("System Rebooted! All file descriptors cleared.")
+            st.metric("Total Visitors", len(st.session_state.user_db))
+
     # --- 6. USER PORTAL ---
     else:
         st.sidebar.markdown(f"**Live Members:** {random.randint(1200, 5000):,}")
@@ -107,6 +120,7 @@ else:
         sel_lang = st.sidebar.selectbox("Language", ["Select"] + list(lang_map.keys()))
         sel_era = st.sidebar.selectbox("Choose Era", ["Select", "2020-2030", "2010-2020", "2000-2010", "1990-2000"])
 
+        # Caching logic is mandatory to prevent buffering crashes
         @st.cache_data(ttl=3600)
         def get_details(m_id, type_str):
             try:
@@ -115,6 +129,7 @@ else:
                 ott_n, ott_l = None, None
                 if 'flatrate' in providers:
                     ott_n, ott_l = providers['flatrate'][0]['provider_name'], providers.get('link') 
+                
                 trailer = next((f"https://www.youtube.com/watch?v={v['key']}" for v in res.get('videos', {}).get('results', []) if v['type'] == 'Trailer'), None)
                 return ott_n, ott_l, trailer
             except: return None, None, None
@@ -123,7 +138,6 @@ else:
         search_query = st.text_input("🔍 Search...")
 
         if st.button("Generate Recommendations 🚀") or search_query:
-            today = datetime.now()
             results = []
             try:
                 if search_query:
@@ -137,11 +151,12 @@ else:
                     cols = st.columns(4)
                     processed = 0
                     for item in results:
-                        if processed >= 12: break # Stops buffering
+                        if processed >= 12: break # Hard limit to stop server overload
                         rd_str = getattr(item, 'release_date', getattr(item, 'first_air_date', ''))
                         if not rd_str: continue
                         
                         item_year = int(rd_str.split('-')[0])
+                        # Era filter ensures old movies don't show up in modern eras
                         if not search_query and (item_year < s_year or item_year > e_year): continue
 
                         ott_n, ott_l, trailer = get_details(item.id, m_type)
@@ -150,9 +165,9 @@ else:
                         with cols[processed % 4]:
                             st.image(f"https://image.tmdb.org/t/p/w500{getattr(item, 'poster_path', '')}")
                             st.subheader(f"{getattr(item, 'title', getattr(item, 'name', ''))[:15]} ({item_year})")
-                            with st.expander("Watch"):
+                            with st.expander("👁️ Details & Play"):
                                 st.markdown(f"<div class='ott-badge'>📺 {ott_n.upper()}</div>", unsafe_allow_html=True)
                                 if trailer: st.video(trailer)
                                 if ott_l: st.markdown(f'<a href="{ott_l}" target="_blank" class="play-button">▶️ PLAY NOW</a>', unsafe_allow_html=True)
                         processed += 1
-            except Exception as e: st.warning("Please wait 5 seconds and click again.")
+            except Exception as e: st.warning("Please wait 5 seconds and click Generate again.")
