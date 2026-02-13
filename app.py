@@ -11,18 +11,26 @@ movie_api, tv_api = Movie(), TV()
 discover_api, trending_api = Discover(), Trending()
 search_api = Search()
 
-# --- 2. PAGE SETUP & DYNAMIC UI ---
+# --- 2. PAGE SETUP & THEME LOGIC ---
 st.set_page_config(page_title="Irfan Recommendation System (IRS)", layout="wide", page_icon="🎬")
 
 if 'theme' not in st.session_state:
     st.session_state.theme = 'Dark'
 
 def set_imax_ui(theme):
-    # Using your most recent 3D theater image as the background
+    # This uses your recent IMAX theater image as the base
     bg_img = "http://googleusercontent.com/image_generation_content/0"
-    overlay = "rgba(0,0,0,0.75)" if theme == 'Dark' else "rgba(255,255,255,0.65)"
-    text_color = "white" if theme == 'Dark' else "#111"
     
+    # Logic to fix Light Mode visibility
+    if theme == 'Light':
+        overlay = "rgba(255, 255, 255, 0.75)"
+        text_color = "#121212"
+        card_bg = "rgba(255, 255, 255, 0.9)"
+    else:
+        overlay = "rgba(0, 0, 0, 0.8)"
+        text_color = "#FFFFFF"
+        card_bg = "rgba(30, 30, 30, 0.8)"
+
     st.markdown(f"""
         <style>
         .stApp {{
@@ -31,23 +39,24 @@ def set_imax_ui(theme):
             background-attachment: fixed;
             color: {text_color};
         }}
-        /* LED Ceiling Decoration mimicking your recent image */
+        /* Fixed LED Ceiling with Twinkle */
         .ceiling-lights {{
             position: fixed;
-            top: 0; left: 0; width: 100%; height: 120px;
-            background: radial-gradient(circle, rgba(0, 150, 255, 0.8) 1.5px, transparent 1.5px);
+            top: 0; left: 0; width: 100%; height: 100px;
+            background: radial-gradient(circle, rgba(0, 191, 255, 0.9) 1.5px, transparent 1.5px);
             background-size: 30px 30px;
-            z-index: 99;
-            filter: blur(1px);
-            animation: twinkle 4s infinite;
+            z-index: 100;
+            filter: drop-shadow(0 0 5px rgba(0, 191, 255, 0.5));
+            animation: twinkle 3s infinite ease-in-out;
         }}
         @keyframes twinkle {{
-            0%, 100% {{ opacity: 0.4; }}
+            0%, 100% {{ opacity: 0.3; }}
             50% {{ opacity: 0.8; }}
         }}
+        /* UI Enhancements */
         .ott-link {{ background-color: #e50914; color: white !important; padding: 12px; border-radius: 8px; text-decoration: none; display: block; text-align: center; font-weight: bold; margin-top: 10px; }}
-        .rating-box {{ background-color: #f5c518; color: #000; padding: 4px 8px; border-radius: 5px; font-weight: bold; display: inline-block; margin-bottom: 5px; }}
-        h1, h2, h3, p, span {{ color: {text_color} !important; }}
+        .rating-box {{ background-color: #f5c518; color: #000; padding: 4px 8px; border-radius: 5px; font-weight: bold; display: inline-block; margin-bottom: 8px; }}
+        h1, h2, h3, p, span, label, .stMarkdown {{ color: {text_color} !important; }}
         </style>
         <div class="ceiling-lights"></div>
         """, unsafe_allow_html=True)
@@ -57,22 +66,22 @@ if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 
 if not st.session_state.logged_in:
-    set_imax_ui('Dark') # ICU starts in Dark Mode
+    set_imax_ui('Dark') # ICU Login starts in immersive dark mode
     st.title("🎬 IRFAN CINEMATIC UNIVERSE (ICU)")
     st.write("---")
-    u_name = st.text_input("Member Name")
-    u_age = st.number_input("Member Age", 1, 100, 18)
-    if st.button("Enter ICU"):
+    u_name = st.text_input("Enter Member Name")
+    u_age = st.number_input("Enter Member Age", 1, 100, 18)
+    if st.button("Access ICU"):
         if u_name:
             st.session_state.logged_in = True
             st.session_state.u_name = u_name
             st.session_state.u_age = u_age
             st.rerun()
-        else: st.error("Access Denied: Please enter your name.")
+        else: st.error("Please provide a name to enter the Universe.")
 else:
     # --- 4. MAIN DASHBOARD (IRS) ---
     st.sidebar.title(f"👤 {st.session_state.u_name}")
-    st.session_state.theme = st.sidebar.radio("Theater Lighting", ["Dark", "Light"])
+    st.session_state.theme = st.sidebar.radio("Theater Lighting Mode", ["Dark", "Light"])
     set_imax_ui(st.session_state.theme)
     
     is_adult = st.session_state.u_age >= 18
@@ -100,17 +109,17 @@ else:
             return cast, ott_n, ott_l
         except: return "N/A", None, None
 
-    # --- 6. DISCOVERY LOGIC ---
+    # --- 6. IRS DISCOVERY LOGIC ---
     st.title(f"✨ Irfan Recommendation System (IRS)")
     search_query = st.text_input("🔍 Search Movies, TV Shows, Actors, or Directors...")
     mood_map = {"Happy 😊": [35, 16], "Sad 😢": [18, 10749], "Excited 🤩": [28, 12], "Scared 😨": [27, 53]}
-    selected_mood = st.selectbox("🎭 Mood Selection", ["Select"] + list(mood_map.keys()))
+    selected_mood = st.selectbox("🎭 Select Your Vibe", ["Select"] + list(mood_map.keys()))
 
     ready = (media_type != "Select" and sel_lang != "Select" and selected_mood != "Select")
 
     if st.button("Generate IRS Report 🚀") or search_query:
         if not search_query and not ready:
-            st.error("⚠️ Filter selection incomplete for IRS generation.")
+            st.error("⚠️ Incomplete filters. ICU protocols require Mood, Language, and Content selection!")
         else:
             results = []
             today = datetime.now().strftime('%Y-%m-%d')
