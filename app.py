@@ -7,20 +7,20 @@ from urllib3.util.retry import Retry
 import pandas as pd
 import random
 
-# --- 1. THE ULTIMATE CORE FIX (REBORN) ---
+# --- 1. CORE RECTIFICATION: RESOURCE THROTTLING ---
 @st.cache_resource
-def get_stable_session():
-    """Strictly caps network connections to prevent [Errno 24]"""
+def get_bulletproof_session():
+    """Strictly limits open files to stop buffering and [Errno 24] crashes"""
     session = requests.Session()
-    # Retries handle temporary blips without opening new files
+    # Retry logic handles network blips without opening new files
     retries = Retry(total=5, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
-    # pool_maxsize=10 is the 'hard reset' that prevents the open files crash
+    # pool_maxsize=10 acts as a physical ceiling for open file descriptors
     adapter = HTTPAdapter(pool_connections=5, pool_maxsize=10, max_retries=retries)
     session.mount('https://', adapter)
     session.mount('http://', adapter)
     return session
 
-# Initialize TMDB with the stable session
+# Initialize Stabilized TMDB
 tmdb = TMDb()
 tmdb.api_key = 'a3ce43541791ff5e752a8e62ce0fcde2'
 tmdb.language = 'en'
@@ -28,11 +28,11 @@ movie_api, tv_api = Movie(), TV()
 discover_api, trending_api = Discover(), Trending()
 search_api = Search()
 
-# --- 2. ADMIN DATABASE ---
+# --- 2. CONFIDENTIAL DATABASE ---
 if 'user_db' not in st.session_state:
     st.session_state.user_db = []
 
-# --- 3. THEATER UI & STYLING ---
+# --- 3. UI & THEATER ENHANCEMENTS ---
 st.set_page_config(page_title="IRS - ICU Reborn", layout="wide", page_icon="🎬")
 
 def set_bg():
@@ -51,7 +51,7 @@ def set_bg():
         <video autoplay muted loop id="bg-video"><source src="{video_url}" type="video/mp4"></video>
         """, unsafe_allow_html=True)
 
-# --- 4. SECURE ACCESS CONTROL ---
+# --- 4. SECURE ACCESS ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 
@@ -65,7 +65,7 @@ if not st.session_state.logged_in:
     if st.button("Enter ICU"):
         if u_name:
             if u_name.lower() == "irfan":
-                if admin_key == "irfan@123": # Your secure password
+                if admin_key == "irfan@123": # Change this to your preferred password!
                     st.session_state.role = "Admin"
                 else:
                     st.error("Invalid Security Key!")
@@ -77,7 +77,7 @@ if not st.session_state.logged_in:
             st.session_state.user_db.append({"Time": datetime.now().strftime("%H:%M:%S"), "User": u_name, "Role": st.session_state.role})
             st.rerun()
 else:
-    # --- 5. SYSTEM NAVIGATION ---
+    # --- 5. NAVIGATION ---
     set_bg()
     st.sidebar.title(f"👤 {st.session_state.u_name}")
     if st.session_state.role == "Admin":
@@ -98,13 +98,13 @@ else:
             st.subheader("Member Login Registry (Confidential)")
             st.table(pd.DataFrame(st.session_state.user_db))
         with col2:
-            st.subheader("System Control")
-            if st.button("🚀 FULL SERVER RESET"):
-                # Instantly clears all file descriptors and memory
+            st.subheader("Manual Reset")
+            if st.button("🚀 FULL SYSTEM REBOOT"):
+                # Force-kills all connections and clears memory
                 st.cache_data.clear()
                 st.cache_resource.clear()
-                st.success("All connections and cache cleared!")
-            st.metric("Total Visitors", len(st.session_state.user_db))
+                st.success("System Rebooted! All file descriptors cleared.")
+            st.metric("Total Visitors Today", len(st.session_state.user_db))
 
     # --- 7. USER PORTAL ---
     else:
@@ -114,11 +114,11 @@ else:
         sel_lang = st.sidebar.selectbox("Language", ["Select"] + list(lang_map.keys()))
         sel_era = st.sidebar.selectbox("Choose Era", ["Select", "2020-2030", "2010-2020", "2000-2010", "1990-2000"])
 
-        # Caching logic ensures we don't open new files for repeated searches
+        # Caching logic is the first line of defense against buffering
         @st.cache_data(ttl=3600)
         def get_details(m_id, type_str):
             try:
-                # Every request uses the safe capped session
+                # Every call reuses a single 'pipe' through the Safe Session
                 res = movie_api.details(m_id, append_to_response="credits,watch/providers,videos") if type_str == "Movies" else tv_api.details(m_id, append_to_response="credits,watch/providers,videos")
                 cast = ", ".join([c['name'] for c in res.get('credits', {}).get('cast', [])[:5]])
                 providers = res.get('watch/providers', {}).get('results', {}).get('IN', {})
@@ -155,21 +155,23 @@ else:
                         if not rd_str: continue
                         
                         item_year = int(rd_str.split('-')[0])
-                        # Era Validation: Stops older movies from appearing in modern searches
+                        # Strict Era Logic: Discards 2015 movies from 2020 era
                         if not search_query and (item_year < s_year or item_year > e_year): continue
                         if datetime.strptime(rd_str, '%Y-%m-%d') > today: continue 
 
                         cast, ott_n, ott_l, trailer = get_details(item.id, m_type)
-                        # Mandatory OTT filter: Only shows content available to stream
+                        # Mandatory OTT filter: Only shows movies you can stream
                         if not ott_n: continue 
 
                         with cols[processed % 4]:
                             st.image(f"https://image.tmdb.org/t/p/w500{getattr(item, 'poster_path', '')}")
                             st.subheader(f"{getattr(item, 'title', getattr(item, 'name', ''))[:20]} ({item_year})")
-                            with st.expander("Details"):
+                            with st.expander("👁️ View Details & Play"):
                                 st.markdown(f"<div class='rating-box'>⭐ IMDb {getattr(item, 'vote_average', 0):.1f}/10</div>", unsafe_allow_html=True)
                                 st.markdown(f"<div class='ott-badge'>📺 {ott_n.upper()}</div>", unsafe_allow_html=True)
                                 if trailer: st.video(trailer)
                                 st.markdown(f'<a href="{ott_l}" target="_blank" class="play-button">▶️ ONE-CLICK PLAY</a>', unsafe_allow_html=True)
                         processed += 1
-            except Exception as e: st.error(f"System Load High. Use 'Server Reset' in Admin panel.")
+            except Exception as e: 
+                # Prevents a full screen freeze by providing a graceful fallback
+                st.warning("Server load detected. Please use the Reboot button in your Admin Command Center.")
