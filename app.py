@@ -6,19 +6,19 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import pandas as pd
 
-# --- 1. SESSION INITIALIZATION (Fixes AttributeError crashes) ---
+# --- 1. GLOBAL INITIALIZATION (Fixes AttributeError Crashes) ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 if 'role' not in st.session_state:
-    st.session_state.role = "Guest" 
+    st.session_state.role = "Guest"
 if 'u_age' not in st.session_state:
-    st.session_state.u_age = 18 
+    st.session_state.u_age = 18
 if 'u_name' not in st.session_state:
     st.session_state.u_name = "Guest"
 if 'user_db' not in st.session_state:
     st.session_state.user_db = []
 
-# --- 2. CORE STABILIZATION ---
+# --- 2. STABILIZED TMDB SESSION ---
 @st.cache_resource
 def get_bulletproof_session():
     session = requests.Session()
@@ -34,7 +34,7 @@ tmdb.session = get_bulletproof_session()
 movie_api, tv_api = Movie(), TV()
 discover_api, search_api = Discover(), Search()
 
-# --- 3. UI: IMAX BACKGROUND ---
+# --- 3. UI: IMAX BACKGROUND & STYLING ---
 st.set_page_config(page_title="IRFAN CINEMATIC UNIVERSE (ICU)", layout="wide", page_icon="🎬")
 
 def set_bg():
@@ -50,13 +50,13 @@ def set_bg():
         <video autoplay muted loop id="bg-video"><source src="{video_url}" type="video/mp4"></video>
         """, unsafe_allow_html=True)
 
-# --- 4. REAL DATA EXTRACTION ---
+# --- 4. DEEP DATA EXTRACTION ---
 @st.cache_data(ttl=3600)
-def get_real_details(m_id, type_str):
+def get_movie_meta(m_id, type_str):
     try:
         obj = movie_api if type_str == "Movies" else tv_api
         res = obj.details(m_id, append_to_response="credits,watch/providers,videos")
-        plot = getattr(res, 'overview', "Plot not available.")
+        plot = getattr(res, 'overview', "No plot available.")
         cast = ", ".join([c['name'] for c in getattr(res, 'credits', {}).get('cast', [])[:5]])
         providers = getattr(res, 'watch/providers', {}).get('results', {}).get('IN', {})
         ott_n, ott_l = None, None
@@ -68,27 +68,28 @@ def get_real_details(m_id, type_str):
         return plot, cast, ott_n, ott_l, trailer
     except: return None, None, None, None, None
 
-# --- 5. MAIN LOGIC ---
+# --- 5. SYSTEM FLOW ---
 if not st.session_state.logged_in:
     set_bg()
     st.title("🎬 IRFAN CINEMATIC UNIVERSE (ICU)")
-    u_name = st.text_input("Name").strip()
+    u_name = st.text_input("Member Name").strip()
     u_age_in = st.number_input("Age", 1, 100, 18)
-    admin_key = st.text_input("Key", type="password") if u_name.lower() == "irfan" else ""
+    admin_key = st.text_input("Security Key", type="password") if u_name.lower() == "irfan" else ""
 
     if st.button("Enter ICU"):
         if u_name:
             if u_name.lower() == "irfan":
                 if admin_key == "Irfan@1403": st.session_state.role = "Admin"
-                else: st.error("Wrong Key!"); st.stop()
+                else: st.error("Access Denied!"); st.stop()
             else: st.session_state.role = "Subscriber"
+            
             st.session_state.logged_in, st.session_state.u_name, st.session_state.u_age = True, u_name, u_age_in
             st.session_state.user_db.append({"User": u_name, "Age": u_age_in, "Role": st.session_state.role, "Time": datetime.now().strftime("%H:%M")})
             st.rerun()
 else:
     set_bg()
     st.sidebar.title(f"👤 {st.session_state.u_name}")
-    app_mode = st.sidebar.radio("Nav", ["User Portal", "Admin Command Center"]) if st.session_state.role == "Admin" else "User Portal"
+    app_mode = st.sidebar.radio("Navigation", ["User Portal", "Admin Command Center"]) if st.session_state.role == "Admin" else "User Portal"
 
     if app_mode == "Admin Command Center":
         st.title("🛡️ Admin Center")
@@ -98,17 +99,19 @@ else:
             st.success("Rebooted!")
         st.table(pd.DataFrame(st.session_state.user_db))
     else:
-        # User Portal
-        m_type = st.sidebar.selectbox("Type", ["Movies", "TV Shows"])
-        mood_map = {"Laughter": 35, "Fear": 27, "Excitement": 28, "Mystery": 9648, "Emotional": 18}
+        # Irfan Recommendation System (IRS)
+        st.sidebar.header("IRS Filters")
+        m_type = st.sidebar.selectbox("Content", ["Movies", "TV Shows"])
+        mood_map = {"Laughter": 35, "Fear": 27, "Excitement": 28, "Mystery": 9648, "Bravery": 10752}
         if st.session_state.u_age >= 18: mood_map["Love/Romantic"] = 10749
+        
         sel_mood = st.sidebar.selectbox("Emotion", ["Select"] + list(mood_map.keys()))
-        lang_map = {"Telugu": "te", "Hindi": "hi", "Tamil": "ta", "English": "en"}
+        lang_map = {"Telugu": "te", "Hindi": "hi", "Tamil": "ta", "English": "en", "Malayalam": "ml", "Kannada": "kn", "Korean": "ko"}
         sel_lang = st.sidebar.selectbox("Language", ["Select"] + sorted(list(lang_map.keys())))
         sel_era = st.sidebar.selectbox("Era", ["Select", "2020-2030", "2010-2020", "2000-2010"])
 
         st.title("🎬 IRFAN CINEMATIC UNIVERSE (ICU)")
-        search_query = st.text_input("🔍 Search Movies...")
+        search_query = st.text_input("🔍 Search Movies or TV Shows...")
 
         if st.button("Generate Recommendations 🚀") or search_query:
             results = []
@@ -118,11 +121,11 @@ else:
                 s_year, e_year = map(int, sel_era.split('-'))
                 p = {'with_original_language': lang_map[sel_lang], 'primary_release_date.gte': f"{s_year}-01-01", 'primary_release_date.lte': f"{e_year}-12-31", 'with_genres': mood_map[sel_mood], 'sort_by': 'popularity.desc', 'include_adult': st.session_state.u_age >= 18}
                 
-                # SMART FALLBACK: Tries OTT first, then general
+                # SMART FALLBACK: Tries OTT first, then general popular
                 p_strict = {**p, 'watch_region': 'IN', 'with_watch_monetization_types': 'flatrate|free|ads'}
                 results = list(discover_api.discover_movies(p_strict) if m_type == "Movies" else discover_api.discover_tv_shows(p_strict))
                 if not results:
-                    st.info("Showing popular titles (No direct India streaming links found).")
+                    st.info("Showing popular titles (Specific India OTT links not found).")
                     results = list(discover_api.discover_movies(p) if m_type == "Movies" else discover_api.discover_tv_shows(p))
 
             if results:
@@ -132,8 +135,10 @@ else:
                     if processed >= 75: break
                     m_id = getattr(item, 'id', None)
                     if not m_id: continue
-                    plot, cast, ott_n, ott_l, trailer = get_real_details(m_id, m_type)
+                    
+                    plot, cast, ott_n, ott_l, trailer = get_movie_meta(m_id, m_type)
                     if not plot: continue
+                    
                     with cols[processed % 3]:
                         st.image(f"https://image.tmdb.org/t/p/w500{getattr(item, 'poster_path', '')}")
                         st.subheader(f"{getattr(item, 'title', getattr(item, 'name', ''))[:20]}")
