@@ -5,8 +5,7 @@ import requests
 import random
 import pandas as pd
 
-# --- 1. GLOBAL SESSION FIX (Rectifies Errno 24) ---
-# Reusing the connection session prevents the "Too many open files" crash
+# --- 1. GLOBAL SESSION FIX (Stops Errno 24) ---
 @st.cache_resource
 def get_tmdb_session():
     session = requests.Session()
@@ -21,11 +20,12 @@ movie_api, tv_api = Movie(), TV()
 discover_api, trending_api = Discover(), Trending()
 search_api = Search()
 
-# --- 2. DATABASE & UI SETUP ---
+# --- 2. CONFIDENTIAL DATABASE ---
 if 'user_db' not in st.session_state:
     st.session_state.user_db = []
 
-st.set_page_config(page_title="IRS - Fixed & Scalable", layout="wide", page_icon="🎬")
+# --- 3. THEATER UI & STYLING ---
+st.set_page_config(page_title="IRS - Secured Admin Edition", layout="wide", page_icon="🎬")
 
 def set_bg():
     video_url = "http://googleusercontent.com/generated_video_content/10641277448723540926"
@@ -43,7 +43,7 @@ def set_bg():
         <video autoplay muted loop id="bg-video"><source src="{video_url}" type="video/mp4"></video>
         """, unsafe_allow_html=True)
 
-# --- 3. AUTHENTICATION ---
+# --- 4. SECURE AUTHENTICATION GATE ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 
@@ -52,37 +52,63 @@ if not st.session_state.logged_in:
     st.title("🎬 IRFAN CINEMATIC UNIVERSE (ICU)")
     u_name = st.text_input("Member Name").strip()
     u_age = st.number_input("Member Age", 1, 100, 18)
+    
+    # NEW: Admin Password Protection
+    admin_key = ""
+    if u_name.lower() == "irfan":
+        admin_key = st.text_input("Security Key (Admin Only)", type="password")
+
     if st.button("Access ICU"):
         if u_name:
+            # Validate Admin Credentials
+            if u_name.lower() == "irfan":
+                if admin_key == "irfan@123": # Change this to your preferred password!
+                    st.session_state.role = "Admin"
+                else:
+                    st.error("Invalid Security Key!")
+                    st.stop()
+            else:
+                st.session_state.role = "Subscriber"
+
             st.session_state.logged_in = True
             st.session_state.u_name = u_name
-            st.session_state.role = "Admin" if u_name.lower() == "irfan" else "Subscriber"
-            st.session_state.user_db.append({"Time": datetime.now().strftime("%H:%M:%S"), "User": u_name, "Age": u_age})
+            st.session_state.user_db.append({
+                "Time": datetime.now().strftime("%H:%M:%S"),
+                "User": u_name,
+                "Role": st.session_state.role
+            })
             st.rerun()
+        else: st.error("Please enter a name.")
 else:
-    # --- 4. NAVIGATION & LIVE STATUS ---
+    # --- 5. REALM RECOGNITION ---
     set_bg()
     st.sidebar.title(f"👤 {st.session_state.u_name}")
+    
     if st.session_state.role == "Admin":
         st.sidebar.markdown("<span class='admin-badge'>SYSTEM ADMIN</span>", unsafe_allow_html=True)
-        app_mode = st.sidebar.radio("Realm", ["User Portal", "Admin Command Center"])
+        app_mode = st.sidebar.radio("Navigation", ["User Portal", "Admin Command Center"])
     else:
         app_mode = "User Portal"
 
-    # --- 5. ADMIN REALM (Confidential) ---
-    if app_mode == "Admin Command Center":
+    if st.sidebar.button("Log Out"):
+        st.session_state.logged_in = False
+        st.rerun()
+
+    # --- 6. ADMIN REALM (Confidential Data) ---
+    if app_mode == "Admin Command Center" and st.session_state.role == "Admin":
         st.title("🛡️ Admin Command Center")
-        st.subheader("Confidential Login Logs")
+        st.subheader("Member Login Registry")
         st.table(pd.DataFrame(st.session_state.user_db))
-        st.metric("Total Sessions", len(st.session_state.user_db))
-    
-    # --- 6. USER PORTAL ---
+        st.metric("Total Visitors", len(st.session_state.user_db))
+        st.success("You are viewing confidential data hidden from subscribers.")
+
+    # --- 7. SUBSCRIBER PORTAL ---
     else:
         st.sidebar.markdown(f"**Live Members:** {random.randint(1200, 5000):,}")
         media_type = st.sidebar.selectbox("Content Type", ["Select", "Movies", "TV Shows"])
         lang_map = {"Telugu": "te", "Hindi": "hi", "English": "en", "Tamil": "ta"}
         sel_lang = st.sidebar.selectbox("Language", ["Select"] + list(lang_map.keys()))
-        sel_era = st.sidebar.selectbox("Choose Era", ["Select", "2020-2030", "2010-2020", "2000-2010", "1990-2000", "1980-1990"])
+        sel_era = st.sidebar.selectbox("Choose Era", ["Select", "2020-2030", "2010-2020", "2000-2010", "1990-2000"])
 
         @st.cache_data(ttl=3600)
         def get_details(m_id, m_type):
@@ -105,9 +131,7 @@ else:
             except: return "N/A", None, None, None
 
         st.title("✨ Irfan Recommendation System (IRS)")
-        search_query = st.text_input("🔍 Search...")
-        mood_map = {"Happy 😊": [35, 16], "Sad 😢": [18, 10749], "Excited 🤩": [28, 12], "Scared 😨": [27, 53]}
-        selected_mood = st.selectbox("🎭 Select Mood", ["Select"] + list(mood_map.keys()))
+        search_query = st.text_input("🔍 Search Movies...")
 
         if st.button("Generate Recommendations 🚀") or search_query:
             today = datetime.now()
@@ -117,15 +141,14 @@ else:
                     results = list(search_api.multi(search_query))
                 elif media_type != "Select" and sel_lang != "Select" and sel_era != "Select":
                     s_year, e_year = map(int, sel_era.split('-'))
-                    m_ids = mood_map.get(selected_mood.split()[0], [])
-                    p = {'with_original_language': lang_map[sel_lang], 'primary_release_date.gte': f"{s_year}-01-01", 'primary_release_date.lte': f"{e_year}-12-31", 'watch_region': 'IN', 'sort_by': 'popularity.desc', 'with_genres': "|".join(map(str, m_ids))}
+                    p = {'with_original_language': lang_map[sel_lang], 'primary_release_date.gte': f"{s_year}-01-01", 'primary_release_date.lte': f"{e_year}-12-31", 'watch_region': 'IN', 'sort_by': 'popularity.desc'}
                     results = list(discover_api.discover_movies(p) if media_type == "Movies" else discover_api.discover_tv_shows(p))
 
                 if results:
                     cols = st.columns(4)
                     processed = 0
                     for item in results:
-                        if processed >= 100: break
+                        if processed >= 20: break
                         rd_str = getattr(item, 'release_date', getattr(item, 'first_air_date', ''))
                         if not rd_str: continue
                         
@@ -133,17 +156,16 @@ else:
                         if not search_query and (item_year < s_year or item_year > e_year): continue
                         if datetime.strptime(rd_str, '%Y-%m-%d') > today: continue 
 
-                        cast, ott_n, ott_l, trailer = get_details(item.id, media_type if media_type != "Select" else "Movies")
-                        if not ott_n: continue # Strict OTT Filter
+                        cast, ott_n, ott_l, trailer = get_details(item.id, media_type)
+                        if not ott_n: continue 
 
                         with cols[processed % 4]:
                             st.image(f"https://image.tmdb.org/t/p/w500{getattr(item, 'poster_path', '')}")
                             st.subheader(f"{getattr(item, 'title', getattr(item, 'name', ''))[:20]} ({item_year})")
-                            with st.expander("👁️ View Details & Play"):
+                            with st.expander("Details & Watch"):
                                 st.markdown(f"<div class='rating-box'>⭐ IMDb {getattr(item, 'vote_average', 0):.1f}/10</div>", unsafe_allow_html=True)
                                 st.markdown(f"<div class='ott-badge'>📺 {ott_n.upper()}</div>", unsafe_allow_html=True)
                                 if trailer: st.video(trailer)
                                 st.markdown(f'<a href="{ott_l}" target="_blank" class="play-button">▶️ ONE-CLICK PLAY</a>', unsafe_allow_html=True)
-                                st.write(f"🎭 **Cast:** {cast}")
                         processed += 1
             except Exception as e: st.error(f"Error: {e}")
