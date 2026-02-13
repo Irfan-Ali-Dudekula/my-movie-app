@@ -28,11 +28,17 @@ def set_bg():
             position: fixed; right: 0; bottom: 0; min-width: 100%; min-height: 100%; 
             z-index: -1; filter: brightness(20%); object-fit: cover; 
         }}
-        .ott-link {{ background-color: #e50914; color: white !important; padding: 12px; border-radius: 8px; text-decoration: none; display: block; text-align: center; font-weight: bold; font-size: 1.1em; border: 1px solid #ff4b4b; }}
-        .cast-text {{ color: #f0ad4e; font-weight: bold; font-size: 0.9em; }}
-        .rating-box {{ background-color: #f5c518; color: #000; padding: 4px 8px; border-radius: 5px; font-weight: bold; display: inline-block; margin-bottom: 5px; }}
-        /* NEW: OTT Highlight Badge */
-        .ott-highlight {{ background-color: #28a745; color: white; padding: 4px 10px; border-radius: 5px; font-weight: bold; display: inline-block; margin-bottom: 10px; font-size: 0.85em; border: 1px solid #1e7e34; }}
+        .ott-button {{ 
+            background-color: #28a745; color: white !important; 
+            padding: 15px; border-radius: 10px; 
+            text-decoration: none; display: block; 
+            text-align: center; font-weight: bold; 
+            font-size: 1.2em; border: 2px solid #1e7e34;
+            margin-top: 15px; transition: 0.3s;
+        }}
+        .ott-button:hover {{ background-color: #218838; transform: scale(1.02); }}
+        .rating-box {{ background-color: #f5c518; color: #000; padding: 6px 12px; border-radius: 5px; font-weight: bold; display: inline-block; margin-right: 10px; }}
+        .ott-badge {{ background-color: #28a745; color: white; padding: 6px 12px; border-radius: 5px; font-weight: bold; display: inline-block; }}
         .ceiling-lights {{
             position: fixed; top: 0; left: 0; width: 100%; height: 100px;
             background: radial-gradient(circle, rgba(0, 191, 255, 0.9) 1.5px, transparent 1.5px);
@@ -58,7 +64,7 @@ if not st.session_state.logged_in:
         if u_name:
             st.session_state.logged_in, st.session_state.u_name, st.session_state.u_age = True, u_name, u_age
             st.rerun()
-        else: st.error("Access Denied: Name required.")
+        else: st.error("Access Denied.")
 else:
     # --- 4. MAIN DASHBOARD (IRS) ---
     st.sidebar.title(f"👤 {st.session_state.u_name}")
@@ -93,11 +99,10 @@ else:
 
     if st.button("Generate Recommendations 🚀") or search_query:
         if not search_query and not ready:
-            st.error("⚠️ ICU Protocol: Please select ALL filters (Content, Language, Mood, and Era)!")
+            st.error("⚠️ ICU Protocol: Filters incomplete.")
         else:
             results = []
             today = datetime.now().strftime('%Y-%m-%d')
-            
             try:
                 if search_query:
                     results = list(search_api.multi(search_query))
@@ -105,7 +110,6 @@ else:
                     start_year, end_year = sel_era.split('-')
                     m_ids = mood_map.get(selected_mood, [])
                     genre_string = "|".join(map(str, m_ids)) if m_ids else None
-                    
                     for page in range(1, 6):
                         p = {'with_original_language': lang_map[sel_lang], 'primary_release_date.gte': f"{start_year}-01-01", 'primary_release_date.lte': f"{end_year}-12-31", 'watch_region': 'IN', 'sort_by': 'popularity.desc', 'with_genres': genre_string, 'page': page}
                         page_data = list(discover_api.discover_movies(p) if media_type == "Movies" else discover_api.discover_tv_shows(p))
@@ -118,7 +122,6 @@ else:
                     for item in results:
                         if processed >= 100: break
                         if isinstance(item, str): continue
-                        
                         rd = getattr(item, 'release_date', getattr(item, 'first_air_date', '9999-12-31'))
                         if rd > today or (st.session_state.u_age < 18 and getattr(item, 'adult', False)): continue
 
@@ -126,20 +129,21 @@ else:
                         
                         with main_cols[processed % 4]:
                             st.image(f"https://image.tmdb.org/t/p/w500{getattr(item, 'poster_path', '')}")
-                            
-                            # Ratings and OTT Highlights
-                            st.markdown(f"<div class='rating-box'>⭐ IMDb {getattr(item, 'vote_average', 0):.1f}/10</div>", unsafe_allow_html=True)
-                            if ott_n:
-                                st.markdown(f"<div class='ott-highlight'>📺 STREAMING: {ott_n.upper()}</div>", unsafe_allow_html=True)
-                            
                             st.subheader(getattr(item, 'title', getattr(item, 'name', ''))[:25])
-                            with st.expander("📖 Story & Cast"):
-                                st.write(getattr(item, 'overview', 'Plot unavailable.'))
-                                st.write(f"🎭 **Cast:** {cast}")
+                            
+                            # Interactive Click-to-See Details Logic
+                            with st.expander("👁️ View Details & Watch"):
+                                # Ratings and Status Highlights
+                                st.markdown(f"<div class='rating-box'>⭐ IMDb {getattr(item, 'vote_average', 0):.1f}/10</div>", unsafe_allow_html=True)
                                 if ott_n:
-                                    st.markdown(f'<a href="{ott_l}" target="_blank" class="ott-link">▶️ OPEN {ott_n.upper()}</a>', unsafe_allow_html=True)
+                                    st.markdown(f"<div class='ott-badge'>📺 {ott_n.upper()}</div>", unsafe_allow_html=True)
+                                    st.write(f"---")
+                                    st.write(getattr(item, 'overview', 'Plot unavailable.'))
+                                    st.write(f"🎭 **Cast:** {cast}")
+                                    # Direct Redirect Button
+                                    st.markdown(f'<a href="{ott_l}" target="_blank" class="ott-button">▶️ PLAY ON {ott_n.upper()}</a>', unsafe_allow_html=True)
+                                else:
+                                    st.write(getattr(item, 'overview', 'Plot unavailable.'))
+                                    st.warning("Currently not available on major OTT platforms in India.")
                         processed += 1
-                else:
-                    st.warning("No matches found. Try changing your filters!")
-            except Exception as e:
-                st.error(f"IRS Processing Error: {e}")
+            except Exception as e: st.error(f"Error: {e}")
