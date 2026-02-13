@@ -20,9 +20,14 @@ def get_bulletproof_session():
     session.mount('http://', adapter)
     return session
 
-# Initialize Stabilized TMDB
+# Initialize TMDB
 tmdb = TMDb()
 tmdb.api_key = 'a3ce43541791ff5e752a8e62ce0fcde2'
+
+# ACTIVATION FIX: Link the stabilized session to the library
+session = get_bulletproof_session()
+tmdb.session = session 
+
 tmdb.language = 'en'
 movie_api, tv_api = Movie(), TV()
 discover_api, trending_api = Discover(), Trending()
@@ -65,7 +70,7 @@ if not st.session_state.logged_in:
     if st.button("Enter ICU"):
         if u_name:
             if u_name.lower() == "irfan":
-                if admin_key == "irfan@123": # Change this to your preferred password!
+                if admin_key == "irfan@123":
                     st.session_state.role = "Admin"
                 else:
                     st.error("Invalid Security Key!")
@@ -98,9 +103,8 @@ else:
             st.subheader("Member Login Registry (Confidential)")
             st.table(pd.DataFrame(st.session_state.user_db))
         with col2:
-            st.subheader("Manual Reset")
+            st.subheader("System Override")
             if st.button("🚀 FULL SYSTEM REBOOT"):
-                # Force-kills all connections and clears memory
                 st.cache_data.clear()
                 st.cache_resource.clear()
                 st.success("System Rebooted! All file descriptors cleared.")
@@ -114,11 +118,10 @@ else:
         sel_lang = st.sidebar.selectbox("Language", ["Select"] + list(lang_map.keys()))
         sel_era = st.sidebar.selectbox("Choose Era", ["Select", "2020-2030", "2010-2020", "2000-2010", "1990-2000"])
 
-        # Caching logic is the first line of defense against buffering
         @st.cache_data(ttl=3600)
         def get_details(m_id, type_str):
             try:
-                # Every call reuses a single 'pipe' through the Safe Session
+                # Every call reuses the 'pipe' via the session fix
                 res = movie_api.details(m_id, append_to_response="credits,watch/providers,videos") if type_str == "Movies" else tv_api.details(m_id, append_to_response="credits,watch/providers,videos")
                 cast = ", ".join([c['name'] for c in res.get('credits', {}).get('cast', [])[:5]])
                 providers = res.get('watch/providers', {}).get('results', {}).get('IN', {})
@@ -155,12 +158,11 @@ else:
                         if not rd_str: continue
                         
                         item_year = int(rd_str.split('-')[0])
-                        # Strict Era Logic: Discards 2015 movies from 2020 era
+                        # Era Check: Discards incorrect dates
                         if not search_query and (item_year < s_year or item_year > e_year): continue
                         if datetime.strptime(rd_str, '%Y-%m-%d') > today: continue 
 
                         cast, ott_n, ott_l, trailer = get_details(item.id, m_type)
-                        # Mandatory OTT filter: Only shows movies you can stream
                         if not ott_n: continue 
 
                         with cols[processed % 4]:
@@ -172,6 +174,4 @@ else:
                                 if trailer: st.video(trailer)
                                 st.markdown(f'<a href="{ott_l}" target="_blank" class="play-button">▶️ ONE-CLICK PLAY</a>', unsafe_allow_html=True)
                         processed += 1
-            except Exception as e: 
-                # Prevents a full screen freeze by providing a graceful fallback
-                st.warning("Server load detected. Please use the Reboot button in your Admin Command Center.")
+            except Exception as e: st.error(f"System Load High. Use the Reboot button in your Admin Center.")
