@@ -11,8 +11,8 @@ import random
 @st.cache_resource
 def get_bulletproof_session():
     session = requests.Session()
-    retries = Retry(total=5, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
-    adapter = HTTPAdapter(pool_connections=5, pool_maxsize=5, max_retries=retries)
+    retries = Retry(total=5, backoff_factor=2, status_forcelist=[429, 500, 502, 503, 504])
+    adapter = HTTPAdapter(pool_connections=10, pool_maxsize=20, max_retries=retries)
     session.mount('https://', adapter)
     session.mount('http://', adapter)
     return session
@@ -38,9 +38,10 @@ def set_bg():
         <style>
         .stApp {{ background: linear-gradient(rgba(0,0,0,0.85), rgba(0,0,0,0.85)), url("{fallback_img}"); background-size: cover; background-attachment: fixed; color: white; }}
         #bg-video {{ position: fixed; right: 0; bottom: 0; min-width: 100%; min-height: 100%; z-index: -1; filter: brightness(20%); object-fit: cover; }}
-        .play-button {{ background: linear-gradient(45deg, #e50914, #ff4b4b); color: white !important; padding: 12px; border-radius: 10px; text-decoration: none; display: block; text-align: center; font-weight: bold; margin-top: 10px; border: none; }}
-        .ott-badge {{ background-color: #28a745; color: white; padding: 4px 8px; border-radius: 5px; font-weight: bold; display: inline-block; margin-bottom: 5px; }}
-        .cast-text {{ color: #cccccc; font-size: 0.9em; font-style: italic; }}
+        .play-button {{ background: linear-gradient(45deg, #28a745, #218838); color: white !important; padding: 12px; border-radius: 8px; text-decoration: none; display: block; text-align: center; font-weight: bold; margin-top: 10px; border: none; }}
+        .play-button:hover {{ background: #1e7e34; color: #ffffff !important; }}
+        .ott-badge {{ background-color: #28a745; color: white; padding: 4px 10px; border-radius: 5px; font-weight: bold; display: inline-block; margin-bottom: 8px; border: 1px solid #ffffff; }}
+        .cast-text {{ color: #00ffcc; font-size: 0.9em; font-weight: bold; }}
         h1, h2, h3, p, span, label, div {{ color: white !important; }}
         </style>
         <video autoplay muted loop id="bg-video"><source src="{video_url}" type="video/mp4"></video>
@@ -71,7 +72,6 @@ if not st.session_state.logged_in:
             st.session_state.user_db.append({"Time": datetime.now().strftime("%H:%M:%S"), "User": u_name, "Role": st.session_state.role})
             st.rerun()
 else:
-    # --- 4. NAVIGATION ---
     set_bg()
     st.sidebar.title(f"👤 {st.session_state.u_name}")
     if st.session_state.role == "Admin":
@@ -88,7 +88,7 @@ else:
         if st.button("🚀 FULL SYSTEM REBOOT"):
             st.cache_data.clear()
             st.cache_resource.clear()
-            st.success("System Rebooted!")
+            st.success("System Cleaned!")
         st.table(pd.DataFrame(st.session_state.user_db))
     
     else:
@@ -111,19 +111,31 @@ else:
         @st.cache_data(ttl=3600)
         def get_deep_details(m_id, type_str):
             try:
+                # Optimized Fetch: Plot, Cast, OTT, and Trailers in one call
                 res = movie_api.details(m_id, append_to_response="credits,watch/providers,videos") if type_str == "Movies" else tv_api.details(m_id, append_to_response="credits,watch/providers,videos")
-                plot = res.overview if res.overview else "No plot available."
-                cast = ", ".join([c['name'] for c in res.credits['cast'][:5]]) if 'credits' in res else "N/A"
-                providers = res.get('watch/providers', {}).get('results', {}).get('IN', {})
+                
+                plot = getattr(res, 'overview', "Plot summary coming soon.")
+                cast_list = [c['name'] for c in getattr(res, 'credits', {}).get('cast', [])[:5]]
+                cast = ", ".join(cast_list) if cast_list else "N/A"
+                
+                providers = getattr(res, 'watch/providers', {}).get('results', {}).get('IN', {})
                 ott_n, ott_l = None, None
                 for mode in ['flatrate', 'free', 'ads']:
                     if mode in providers:
                         ott_n = providers[mode][0]['provider_name']
                         ott_l = providers.get('link')
                         break
-                trailer = next((f"https://www.youtube.com/watch?v={v['key']}" for v in res.get('videos', {}).get('results', []) if v['type'] == 'Trailer'), None)
+                
+                trailer = None
+                videos = getattr(res, 'videos', {}).get('results', [])
+                for v in videos:
+                    if v['type'] == 'Trailer' and v['site'] == 'YouTube':
+                        trailer = f"https://www.youtube.com/watch?v={v['key']}"
+                        break
+                
                 return plot, cast, ott_n, ott_l, trailer
-            except: return "N/A", "N/A", None, None, None
+            except Exception as e:
+                return "Plot details unavailable.", "Cast list N/A", None, None, None
 
         st.title("🎬 IRFAN CINEMATIC UNIVERSE (ICU)")
         st.subheader("Mood Based Movie Recommendation System")
@@ -136,8 +148,6 @@ else:
                     results = list(search_api.multi(search_query))
                 elif m_type != "Select" and sel_lang != "Select" and sel_era != "Select" and sel_mood != "Select":
                     s_year, e_year = map(int, sel_era.split('-'))
-                    
-                    # --- THE FIX: SMART SEARCH LOGIC ---
                     p = {
                         'with_original_language': lang_map[sel_lang], 
                         'primary_release_date.gte': f"{s_year}-01-01", 
@@ -145,11 +155,8 @@ else:
                         'with_genres': mood_map[sel_mood],
                         'sort_by': 'popularity.desc'
                     }
-                    # First try: Strict OTT filter
                     p_strict = {**p, 'watch_region': 'IN', 'with_watch_monetization_types': 'flatrate|free|ads'}
                     results = list(discover_api.discover_movies(p_strict) if m_type == "Movies" else discover_api.discover_tv_shows(p_strict))
-                    
-                    # Second try: If empty, remove the OTT filter to show general results
                     if not results:
                         results = list(discover_api.discover_movies(p) if m_type == "Movies" else discover_api.discover_tv_shows(p))
 
@@ -169,16 +176,21 @@ else:
                         with cols[processed % 3]:
                             st.image(f"https://image.tmdb.org/t/p/w500{getattr(item, 'poster_path', '')}")
                             st.subheader(f"{getattr(item, 'title', getattr(item, 'name', ''))[:20]} ({item_year})")
-                            with st.expander("📖 Plot & Details"):
+                            
+                            with st.expander("📖 View Plot & Cast"):
                                 st.write(f"**Plot:** {plot}")
                                 st.markdown(f"**Cast:** <span class='cast-text'>{cast}</span>", unsafe_allow_html=True)
                             
                             if ott_n:
                                 st.markdown(f"<div class='ott-badge'>📺 Available on: {ott_n.upper()}</div>", unsafe_allow_html=True)
                             else:
-                                st.markdown(f"<div class='ott-badge' style='background-color:#555;'>📽️ Check Local Listings</div>", unsafe_allow_html=True)
+                                st.markdown(f"<div class='ott-badge' style='background-color:#555;'>📽️ Theater/Local Only</div>", unsafe_allow_html=True)
                             
-                            if trailer: st.video(trailer)
-                            if ott_l: st.markdown(f'<a href="{ott_l}" target="_blank" class="play-button">▶️ WATCH NOW</a>', unsafe_allow_html=True)
-                        processed += 1
-            except Exception as e: st.warning("Connection busy. Please click 'Reboot' in Admin Center and try again.")
+                            if trailer:
+                                st.video(trailer)
+                            
+                            if ott_l:
+                                st.markdown(f'<a href="{ott_l}" target="_blank" class="play-button">▶️ PLAY ON {ott_n.upper()}</a>', unsafe_allow_html=True)
+                            processed += 1
+            except Exception as e:
+                st.warning("Connection unstable. Please refresh.")
