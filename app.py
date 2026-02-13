@@ -11,17 +11,19 @@ movie_api, tv_api = Movie(), TV()
 discover_api, trending_api = Discover(), Trending()
 search_api = Search()
 
-# --- 2. PAGE SETUP & THEME ---
+# --- 2. PAGE SETUP & BACKGROUND ---
 st.set_page_config(page_title="Irfan Recommendation System (IRS)", layout="wide", page_icon="🎬")
 
 def set_imax_ui():
     bg_img = "http://googleusercontent.com/image_generation_content/0b8b6c4b-4395-467f-8f85-1d0413009623.png"
     overlay = "rgba(0, 0, 0, 0.85)"
+    text_color = "#FFFFFF"
+
     st.markdown(f"""
         <style>
         .stApp {{
             background: linear-gradient({overlay}, {overlay}), url("{bg_img}");
-            background-size: cover; background-attachment: fixed; color: #FFFFFF;
+            background-size: cover; background-attachment: fixed; color: {text_color};
         }}
         .ceiling-lights {{
             position: fixed; top: 0; left: 0; width: 100%; height: 100px;
@@ -31,7 +33,7 @@ def set_imax_ui():
         @keyframes twinkle {{ 0%, 100% {{ opacity: 0.3; }} 50% {{ opacity: 0.8; }} }}
         .ott-link {{ background-color: #e50914; color: white !important; padding: 12px; border-radius: 8px; text-decoration: none; display: block; text-align: center; font-weight: bold; margin-top: 10px; }}
         .rating-box {{ background-color: #f5c518; color: #000; padding: 4px 8px; border-radius: 5px; font-weight: bold; display: inline-block; margin-bottom: 8px; }}
-        h1, h2, h3, p, span, label, .stMarkdown {{ color: #FFFFFF !important; }}
+        h1, h2, h3, p, span, label, .stMarkdown {{ color: {text_color} !important; }}
         </style>
         <div class="ceiling-lights"></div>
         """, unsafe_allow_html=True)
@@ -51,12 +53,13 @@ if not st.session_state.logged_in:
             st.session_state.u_name = u_name
             st.session_state.u_age = u_age
             st.rerun()
-        else: st.error("Access Denied: Name required.")
+        else: st.error("Name required.")
 else:
     # --- 4. MAIN DASHBOARD (IRS) ---
     st.sidebar.title(f"👤 {st.session_state.u_name}")
     set_imax_ui()
     
+    is_adult = st.session_state.u_age >= 18
     if st.sidebar.button("Log Out"):
         st.session_state.logged_in = False
         st.rerun()
@@ -71,22 +74,28 @@ else:
             res = movie_api.details(m_id, append_to_response="credits,watch/providers") if m_type == "Movies" else tv_api.details(m_id, append_to_response="credits,watch/providers")
             cast = ", ".join([c['name'] for c in res.get('credits', {}).get('cast', [])[:5]])
             providers = res.get('watch/providers', {}).get('results', {}).get('IN', {})
-            ott_n, ott_l = (providers['flatrate'][0]['provider_name'], providers.get('link')) if 'flatrate' in providers else (None, None)
+            ott_n, ott_l = None, None
+            if 'flatrate' in providers:
+                ott_n = providers['flatrate'][0]['provider_name']
+                ott_l = providers.get('link') 
+            elif 'ads' in providers:
+                ott_n = f"{providers['ads'][0]['provider_name']} (Free)"
+                ott_l = providers.get('link')
             return cast, ott_n, ott_l
         except: return "N/A", None, None
 
-    # --- 6. IRS DISCOVERY ---
+    # --- 6. IRS DISCOVERY (100 Results + Fallback) ---
     st.title(f"✨ Irfan Recommendation System (IRS)")
     search_query = st.text_input("🔍 Search Movies, TV Shows, Actors, or Directors...")
     mood_map = {"Happy 😊": [35, 16], "Sad 😢": [18, 10749], "Excited 🤩": [28, 12], "Scared 😨": [27, 53]}
     selected_mood = st.selectbox("🎭 Select Mood", ["Select"] + list(mood_map.keys()))
 
-    # Protocol: Only trigger if search exists OR all filters are selected
+    # Conditional logic: Must select all 3
     ready = (media_type != "Select" and sel_lang != "Select" and selected_mood != "Select")
 
     if st.button("Generate IRS Report 🚀") or search_query:
         if not search_query and not ready:
-            st.error("⚠️ ICU Protocol: Filters incomplete. Please select Content, Language, and Mood!")
+            st.error("⚠️ ICU Protocol: Please select Content Type, Language, and Mood!")
         else:
             results = []
             today = datetime.now().strftime('%Y-%m-%d')
@@ -98,12 +107,19 @@ else:
                     m_ids = mood_map.get(selected_mood, [])
                     genre_string = "|".join(map(str, m_ids)) if m_ids else None
                     
-                    # Fetching up to 100 items
+                    # Fetching up to 100 movies
                     for page in range(1, 6):
                         p = {'with_original_language': lang_map[sel_lang], 'primary_release_date.lte': today, 'air_date.lte': today, 'watch_region': 'IN', 'sort_by': 'popularity.desc', 'with_genres': genre_string, 'page': page}
                         page_data = list(discover_api.discover_movies(p) if media_type == "Movies" else discover_api.discover_tv_shows(p))
                         results.extend(page_data)
                         if len(results) >= 100: break
+
+                # FALLBACK: If strict filters yield nothing, try a general search
+                if not results:
+                    st.warning("No exact matches in India. Expanding search globally...")
+                    p.pop('with_genres', None)
+                    p.pop('watch_region', None)
+                    results = list(discover_api.discover_movies(p) if media_type == "Movies" else discover_api.discover_tv_shows(p))
 
                 if results:
                     main_cols = st.columns(4)
@@ -111,10 +127,8 @@ else:
                     for item in results:
                         if processed >= 100: break
                         if isinstance(item, str): continue
-                        
-                        # Filter released content and age
                         rd = getattr(item, 'release_date', getattr(item, 'first_air_date', '9999-12-31'))
-                        if rd > today or (st.session_state.u_age < 18 and getattr(item, 'adult', False)): continue
+                        if rd > today or (not is_adult and getattr(item, 'adult', False)): continue
 
                         cast, ott_n, ott_l = get_detailed_info(item.id, media_type if media_type != "Select" else "Movies")
                         
@@ -130,6 +144,6 @@ else:
                                     st.markdown(f'<a href="{ott_l}" target="_blank" class="ott-link">▶️ OPEN {ott_n.upper()}</a>', unsafe_allow_html=True)
                         processed += 1
                 else:
-                    st.warning("No matches found in India. Try changing your mood or language!")
+                    st.error("No results found. Please check your API key or internet connection.")
             except Exception as e:
-                st.error(f"System Error: {e}")
+                st.error(f"IRS Error: {e}")
