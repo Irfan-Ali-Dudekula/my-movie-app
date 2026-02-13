@@ -15,7 +15,6 @@ search_api = Search()
 st.set_page_config(page_title="Irfan Recommendation System (IRS)", layout="wide", page_icon="🎬")
 
 def set_bg():
-    # Restoring your specific background and video
     video_url = "http://googleusercontent.com/generated_video_content/10641277448723540926"
     fallback_img = "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?q=80&w=2070"
     
@@ -31,7 +30,9 @@ def set_bg():
         }}
         .ott-link {{ background-color: #e50914; color: white !important; padding: 12px; border-radius: 8px; text-decoration: none; display: block; text-align: center; font-weight: bold; font-size: 1.1em; border: 1px solid #ff4b4b; }}
         .cast-text {{ color: #f0ad4e; font-weight: bold; font-size: 0.9em; }}
-        .rating-box {{ background-color: #f5c518; color: #000; padding: 4px 8px; border-radius: 5px; font-weight: bold; display: inline-block; margin-bottom: 10px; }}
+        .rating-box {{ background-color: #f5c518; color: #000; padding: 4px 8px; border-radius: 5px; font-weight: bold; display: inline-block; margin-bottom: 5px; }}
+        /* NEW: OTT Highlight Badge */
+        .ott-highlight {{ background-color: #28a745; color: white; padding: 4px 10px; border-radius: 5px; font-weight: bold; display: inline-block; margin-bottom: 10px; font-size: 0.85em; border: 1px solid #1e7e34; }}
         .ceiling-lights {{
             position: fixed; top: 0; left: 0; width: 100%; height: 100px;
             background: radial-gradient(circle, rgba(0, 191, 255, 0.9) 1.5px, transparent 1.5px);
@@ -67,7 +68,6 @@ else:
         st.session_state.logged_in = False
         st.rerun()
 
-    # Required Selection Logic
     media_type = st.sidebar.selectbox("Content Type", ["Select", "Movies", "TV Shows"])
     lang_map = {"Telugu": "te", "Hindi": "hi", "English": "en", "Tamil": "ta", "Malayalam": "ml", "Korean": "ko"}
     sel_lang = st.sidebar.selectbox("Language", ["Select"] + list(lang_map.keys()))
@@ -89,7 +89,6 @@ else:
     mood_map = {"Happy 😊": [35, 16], "Sad 😢": [18, 10749], "Excited 🤩": [28, 12], "Scared 😨": [27, 53]}
     selected_mood = st.selectbox("🎭 Select Mood", ["Select"] + list(mood_map.keys()))
 
-    # Enhanced Gate Logic
     ready = (media_type != "Select" and sel_lang != "Select" and selected_mood != "Select" and sel_era != "Select")
 
     if st.button("Generate Recommendations 🚀") or search_query:
@@ -103,19 +102,12 @@ else:
                 if search_query:
                     results = list(search_api.multi(search_query))
                 else:
-                    # Parse Era
                     start_year, end_year = sel_era.split('-')
                     m_ids = mood_map.get(selected_mood, [])
                     genre_string = "|".join(map(str, m_ids)) if m_ids else None
                     
-                    for page in range(1, 6): # Fetch up to 100 results
-                        p = {
-                            'with_original_language': lang_map[sel_lang],
-                            'primary_release_date.gte': f"{start_year}-01-01",
-                            'primary_release_date.lte': f"{end_year}-12-31",
-                            'watch_region': 'IN', 'sort_by': 'popularity.desc',
-                            'with_genres': genre_string, 'page': page
-                        }
+                    for page in range(1, 6):
+                        p = {'with_original_language': lang_map[sel_lang], 'primary_release_date.gte': f"{start_year}-01-01", 'primary_release_date.lte': f"{end_year}-12-31", 'watch_region': 'IN', 'sort_by': 'popularity.desc', 'with_genres': genre_string, 'page': page}
                         page_data = list(discover_api.discover_movies(p) if media_type == "Movies" else discover_api.discover_tv_shows(p))
                         results.extend(page_data)
                         if len(results) >= 100: break
@@ -134,16 +126,20 @@ else:
                         
                         with main_cols[processed % 4]:
                             st.image(f"https://image.tmdb.org/t/p/w500{getattr(item, 'poster_path', '')}")
+                            
+                            # Ratings and OTT Highlights
                             st.markdown(f"<div class='rating-box'>⭐ IMDb {getattr(item, 'vote_average', 0):.1f}/10</div>", unsafe_allow_html=True)
+                            if ott_n:
+                                st.markdown(f"<div class='ott-highlight'>📺 STREAMING: {ott_n.upper()}</div>", unsafe_allow_html=True)
+                            
                             st.subheader(getattr(item, 'title', getattr(item, 'name', ''))[:25])
                             with st.expander("📖 Story & Cast"):
                                 st.write(getattr(item, 'overview', 'Plot unavailable.'))
                                 st.write(f"🎭 **Cast:** {cast}")
                                 if ott_n:
-                                    st.success(f"📺 Watch on: **{ott_n}**")
                                     st.markdown(f'<a href="{ott_l}" target="_blank" class="ott-link">▶️ OPEN {ott_n.upper()}</a>', unsafe_allow_html=True)
                         processed += 1
                 else:
-                    st.warning("No matches found. Try expanding your Era or changing your Mood!")
+                    st.warning("No matches found. Try changing your filters!")
             except Exception as e:
                 st.error(f"IRS Processing Error: {e}")
