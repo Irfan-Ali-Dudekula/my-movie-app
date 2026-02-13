@@ -7,7 +7,7 @@ from urllib3.util.retry import Retry
 import pandas as pd
 import random
 
-# --- 1. SESSION INITIALIZATION ---
+# --- 1. SESSION INITIALIZATION (Crash Prevention) ---
 if 'u_age' not in st.session_state:
     st.session_state.u_age = 18
 if 'logged_in' not in st.session_state:
@@ -101,13 +101,10 @@ else:
         if st.session_state.u_age >= 18: mood_map["Romantic"] = 10749
         
         sel_mood = st.sidebar.selectbox("Current Mood", ["Select"] + list(mood_map.keys()))
-        
-        # --- EXPANDED LANGUAGES ---
         lang_map = {
             "Telugu": "te", "Hindi": "hi", "Tamil": "ta", "Malayalam": "ml", "Kannada": "kn",
             "English": "en", "Spanish": "es", "French": "fr", "German": "de", "Japanese": "ja",
-            "Korean": "ko", "Chinese": "zh", "Arabic": "ar", "Russian": "ru", "Italian": "it",
-            "Bengali": "bn", "Marathi": "mr", "Gujarati": "gu", "Punjabi": "pa"
+            "Korean": "ko", "Chinese": "zh", "Bengali": "bn", "Marathi": "mr"
         }
         sel_lang = st.sidebar.selectbox("Language", ["Select"] + sorted(list(lang_map.keys())))
         sel_era = st.sidebar.selectbox("Choose Era", ["Select", "2020-2030", "2010-2020", "2000-2010", "1990-2000", "1980-1990"])
@@ -117,9 +114,9 @@ else:
             try:
                 obj = movie_api if type_str == "Movies" else tv_api
                 res = obj.details(m_id, append_to_response="credits,watch/providers,videos")
-                plot = res.overview if hasattr(res, 'overview') and res.overview else "No summary available."
+                plot = getattr(res, 'overview', "No summary available.")
                 cast_data = getattr(res, 'credits', {}).get('cast', [])
-                cast = ", ".join([c['name'] for c in cast_data[:5]]) if cast_data else "Cast not listed."
+                cast = ", ".join([c['name'] for c in cast_data[:5]]) if cast_data else "Cast N/A"
                 providers = getattr(res, 'watch/providers', {}).get('results', {}).get('IN', {})
                 ott_n, ott_l = None, None
                 for mode in ['flatrate', 'free', 'ads']:
@@ -143,6 +140,7 @@ else:
                     results = [r for r in search_results if hasattr(r, 'id')]
                 elif m_type != "Select" and sel_lang != "Select" and sel_era != "Select" and sel_mood != "Select":
                     s_year, e_year = map(int, sel_era.split('-'))
+                    # BASE PARAMETERS
                     p = {
                         'with_original_language': lang_map[sel_lang], 
                         'primary_release_date.gte': f"{s_year}-01-01", 
@@ -152,20 +150,27 @@ else:
                         'include_adult': False if st.session_state.u_age < 18 else True
                     }
                     
-                    # FETCH MULTIPLE PAGES TO REACH 75+ ITEMS
-                    for page in range(1, 5): 
-                        p['page'] = page
-                        page_results = list(discover_api.discover_movies(p) if m_type == "Movies" else discover_api.discover_tv_shows(p))
-                        results.extend(page_results)
-                        if len(results) >= 100: break
+                    # SMART FALLBACK LOGIC
+                    # 1. Try Strict OTT Filter (India Region)
+                    p_strict = {**p, 'watch_region': 'IN', 'with_watch_monetization_types': 'flatrate|free|ads'}
+                    for page in range(1, 4):
+                        p_strict['page'] = page
+                        results.extend(list(discover_api.discover_movies(p_strict) if m_type == "Movies" else discover_api.discover_tv_shows(p_strict)))
+                        if len(results) >= 75: break
+                    
+                    # 2. Fallback: If no OTT results, show all popular content
+                    if not results:
+                        st.info("No specific streaming links found in India for this era. Showing all popular titles instead!")
+                        for page in range(1, 4):
+                            p['page'] = page
+                            results.extend(list(discover_api.discover_movies(p) if m_type == "Movies" else discover_api.discover_tv_shows(p)))
+                            if len(results) >= 75: break
 
                 if results:
                     cols = st.columns(3)
                     processed = 0
-                    # INCREASED LIMIT TO 75
                     for item in results:
                         if processed >= 75: break 
-                        
                         m_id = getattr(item, 'id', None)
                         if not m_id: continue
 
@@ -183,4 +188,4 @@ else:
                             if ott_l: st.markdown(f'<a href="{ott_l}" target="_blank" class="play-button">▶️ PLAY NOW</a>', unsafe_allow_html=True)
                             processed += 1
             except Exception as e:
-                st.warning("Connection unstable. Please refresh the page.")
+                st.warning("Connection unstable. Please refresh.")
