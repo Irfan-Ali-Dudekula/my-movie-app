@@ -11,22 +11,14 @@ movie_api, tv_api = Movie(), TV()
 discover_api, trending_api = Discover(), Trending()
 search_api = Search()
 
-# --- 2. PAGE SETUP & THEME LOGIC ---
+# --- 2. PAGE SETUP & BACKGROUND ---
 st.set_page_config(page_title="Irfan Recommendation System (IRS)", layout="wide", page_icon="🎬")
 
-if 'theme_idx' not in st.session_state:
-    st.session_state.theme_idx = 0
-
-def set_imax_ui(theme_idx):
+def set_imax_ui():
+    # Restored your preferred background image
     bg_img = "http://googleusercontent.com/image_generation_content/0b8b6c4b-4395-467f-8f85-1d0413009623.png"
-    
-    # Logic for visual modes without using the words "Dark/Light"
-    if theme_idx == 1: # Represents what was previously "Light"
-        overlay = "rgba(255, 255, 255, 0.75)"
-        text_color = "#121212"
-    else: # Default immersive theater mode
-        overlay = "rgba(0, 0, 0, 0.85)"
-        text_color = "#FFFFFF"
+    overlay = "rgba(0, 0, 0, 0.85)"
+    text_color = "#FFFFFF"
 
     st.markdown(f"""
         <style>
@@ -36,6 +28,7 @@ def set_imax_ui(theme_idx):
             background-attachment: fixed;
             color: {text_color};
         }}
+        /* LED Ceiling Decoration */
         .ceiling-lights {{
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100px;
@@ -60,7 +53,7 @@ if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 
 if not st.session_state.logged_in:
-    set_imax_ui(0)
+    set_imax_ui()
     st.title("🎬 IRFAN CINEMATIC UNIVERSE (ICU)")
     st.write("---")
     u_name = st.text_input("Member Name")
@@ -71,16 +64,11 @@ if not st.session_state.logged_in:
             st.session_state.u_name = u_name
             st.session_state.u_age = u_age
             st.rerun()
-        else: st.error("Name required.")
+        else: st.error("Access Denied: Name required.")
 else:
     # --- 4. MAIN DASHBOARD (IRS) ---
     st.sidebar.title(f"👤 {st.session_state.u_name}")
-    
-    # Radio buttons with empty labels to remove the words "Dark/Light"
-    theme_choice = st.sidebar.radio("Theater Lighting Control", ["◯", "🔘"], index=st.session_state.theme_idx)
-    st.session_state.theme_idx = 0 if theme_choice == "◯" else 1
-    
-    set_imax_ui(st.session_state.theme_idx)
+    set_imax_ui() # Lighting control feature removed
     
     is_adult = st.session_state.u_age >= 18
     if st.sidebar.button("Log Out"):
