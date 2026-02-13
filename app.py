@@ -25,7 +25,7 @@ movie_api, tv_api = Movie(), TV()
 discover_api, trending_api = Discover(), Trending()
 search_api = Search()
 
-# --- 2. ADMIN DATABASE ---
+# --- 2. DATABASE & UI ---
 if 'user_db' not in st.session_state:
     st.session_state.user_db = []
 
@@ -38,8 +38,7 @@ def set_bg():
         <style>
         .stApp {{ background: linear-gradient(rgba(0,0,0,0.85), rgba(0,0,0,0.85)), url("{fallback_img}"); background-size: cover; background-attachment: fixed; color: white; }}
         #bg-video {{ position: fixed; right: 0; bottom: 0; min-width: 100%; min-height: 100%; z-index: -1; filter: brightness(20%); object-fit: cover; }}
-        .play-button {{ background: #28a745 !important; color: white !important; padding: 12px; border-radius: 8px; text-decoration: none; display: block; text-align: center; font-weight: bold; margin-top: 10px; border: none; transition: 0.3s; }}
-        .play-button:hover {{ background: #218838 !important; transform: scale(1.02); }}
+        .play-button {{ background: #28a745 !important; color: white !important; padding: 12px; border-radius: 8px; text-decoration: none; display: block; text-align: center; font-weight: bold; margin-top: 10px; border: none; }}
         .ott-badge {{ background-color: #28a745; color: white; padding: 4px 10px; border-radius: 5px; font-weight: bold; display: inline-block; margin-bottom: 8px; border: 1px solid #ffffff; }}
         .cast-text {{ color: #00ffcc; font-size: 0.9em; font-weight: bold; }}
         h1, h2, h3, p, span, label, div {{ color: white !important; }}
@@ -47,7 +46,7 @@ def set_bg():
         <video autoplay muted loop id="bg-video"><source src="{video_url}" type="video/mp4"></video>
         """, unsafe_allow_html=True)
 
-# --- 3. LOGIN & SECURITY ---
+# --- 3. LOGIN & AGE SECURITY ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 
@@ -68,8 +67,11 @@ if not st.session_state.logged_in:
                     st.stop()
             else:
                 st.session_state.role = "Subscriber"
-            st.session_state.logged_in, st.session_state.u_name = True, u_name
-            st.session_state.user_db.append({"Time": datetime.now().strftime("%H:%M:%S"), "User": u_name, "Role": st.session_state.role})
+            
+            st.session_state.logged_in = True
+            st.session_state.u_name = u_name
+            st.session_state.u_age = u_age # Save age for restriction
+            st.session_state.user_db.append({"Time": datetime.now().strftime("%H:%M:%S"), "User": u_name, "Age": u_age, "Role": st.session_state.role})
             st.rerun()
 else:
     set_bg()
@@ -95,10 +97,15 @@ else:
         st.sidebar.header("Filter Content")
         m_type = st.sidebar.selectbox("Content Type", ["Select", "Movies", "TV Shows"])
         
+        # --- 4. AGE-SENSITIVE MOOD MAP ---
         mood_map = {
             "Happy/Feel Good": 35, "Scary/Horror": 27, "Action/Thrilling": 28,
-            "Romantic": 10749, "Mysterious": 9648, "Emotional/Sad": 18, "Adventurous": 12
+            "Mysterious": 9648, "Emotional/Sad": 18, "Adventurous": 12
         }
+        # Only show Romantic mood if user is 18+
+        if st.session_state.u_age >= 18:
+            mood_map["Romantic"] = 10749
+
         sel_mood = st.sidebar.selectbox("Current Mood", ["Select"] + list(mood_map.keys()))
 
         lang_map = {
@@ -108,19 +115,14 @@ else:
         sel_lang = st.sidebar.selectbox("Language", ["Select"] + sorted(list(lang_map.keys())))
         sel_era = st.sidebar.selectbox("Choose Era", ["Select", "2020-2030", "2010-2020", "2000-2010", "1990-2000"])
 
-        # --- FIX: ROBUST DATA FETCHING ---
         @st.cache_data(ttl=3600)
         def get_deep_details(m_id, type_str):
             try:
-                # Force a secondary detailed fetch for Plot and Cast
                 obj = movie_api if type_str == "Movies" else tv_api
                 res = obj.details(m_id, append_to_response="credits,watch/providers,videos")
-                
                 plot = getattr(res, 'overview', "Plot summary not available.")
                 cast_data = getattr(res, 'credits', {}).get('cast', [])
                 cast = ", ".join([c['name'] for c in cast_data[:5]]) if cast_data else "Cast N/A"
-                
-                # Fetch OTT Data specifically for India
                 providers = getattr(res, 'watch/providers', {}).get('results', {}).get('IN', {})
                 ott_n, ott_l = None, None
                 for mode in ['flatrate', 'free', 'ads']:
@@ -128,21 +130,15 @@ else:
                         ott_n = providers[mode][0]['provider_name']
                         ott_l = providers.get('link')
                         break
-                
-                # Fetch YouTube Trailer
-                trailer = None
-                videos = getattr(res, 'videos', {}).get('results', [])
-                for v in videos:
-                    if v['type'] == 'Trailer' and v['site'] == 'YouTube':
-                        trailer = f"https://www.youtube.com/watch?v={v['key']}"
-                        break
-                
+                trailer = next((f"https://www.youtube.com/watch?v={v['key']}" for v in getattr(res, 'videos', {}).get('results', []) if v['type'] == 'Trailer' and v['site'] == 'YouTube'), None)
                 return plot, cast, ott_n, ott_l, trailer
-            except:
-                return "Connecting...", "Loading...", None, None, None
+            except: return "Loading...", "Loading...", None, None, None
 
         st.title("🎬 IRFAN CINEMATIC UNIVERSE (ICU)")
         st.subheader("Mood Based Movie Recommendation System")
+        if st.session_state.u_age < 18:
+            st.info("🛡️ Parental Controls Active: Adult & Romantic content hidden.")
+
         search_query = st.text_input("🔍 Search Movies...")
 
         if st.button("Generate Recommendations 🚀") or search_query:
@@ -152,13 +148,18 @@ else:
                     results = list(search_api.multi(search_query))
                 elif m_type != "Select" and sel_lang != "Select" and sel_era != "Select" and sel_mood != "Select":
                     s_year, e_year = map(int, sel_era.split('-'))
+                    
+                    # --- 5. ADULT CONTENT FILTER ---
+                    # include_adult is False for under 18
                     p = {
                         'with_original_language': lang_map[sel_lang], 
                         'primary_release_date.gte': f"{s_year}-01-01", 
                         'primary_release_date.lte': f"{e_year}-12-31", 
                         'with_genres': mood_map[sel_mood],
-                        'sort_by': 'popularity.desc'
+                        'sort_by': 'popularity.desc',
+                        'include_adult': False if st.session_state.u_age < 18 else True 
                     }
+                    
                     p_strict = {**p, 'watch_region': 'IN', 'with_watch_monetization_types': 'flatrate|free|ads'}
                     results = list(discover_api.discover_movies(p_strict) if m_type == "Movies" else discover_api.discover_tv_shows(p_strict))
                     if not results:
@@ -175,27 +176,20 @@ else:
                         item_year = int(rd_str.split('-')[0])
                         if not search_query and (item_year < s_year or item_year > e_year): continue
 
-                        # This now forces a fresh pull for every result
                         plot, cast, ott_n, ott_l, trailer = get_deep_details(item.id, m_type)
 
                         with cols[processed % 3]:
                             st.image(f"https://image.tmdb.org/t/p/w500{getattr(item, 'poster_path', '')}")
                             st.subheader(f"{getattr(item, 'title', getattr(item, 'name', ''))[:20]} ({item_year})")
-                            
-                            with st.expander("📖 Plot & Cast Details"):
+                            with st.expander("📖 View Plot & Cast"):
                                 st.markdown(f"**Plot:** {plot}")
                                 st.markdown(f"**Cast:** <span class='cast-text'>{cast}</span>", unsafe_allow_html=True)
-                            
                             if ott_n:
                                 st.markdown(f"<div class='ott-badge'>📺 Available on: {ott_n.upper()}</div>", unsafe_allow_html=True)
                             else:
                                 st.markdown(f"<div class='ott-badge' style='background-color:#555;'>📽️ Theater/Local Only</div>", unsafe_allow_html=True)
-                            
-                            if trailer:
-                                st.video(trailer) 
-                            
+                            if trailer: st.video(trailer)
                             if ott_l:
-                                # Specialized Green Play Button
                                 st.markdown(f'<a href="{ott_l}" target="_blank" class="play-button">▶️ PLAY ON {ott_n.upper()}</a>', unsafe_allow_html=True)
                             processed += 1
             except Exception as e:
