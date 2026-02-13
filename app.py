@@ -6,8 +6,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import pandas as pd
 
-# --- STEP 1: GLOBAL INITIALIZATION (Fixes crashes) ---
-# This must be at the very top
+# --- 1. GLOBAL INITIALIZATION (Fixes AttributeError crashes) ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 if 'role' not in st.session_state:
@@ -19,7 +18,7 @@ if 'u_name' not in st.session_state:
 if 'user_db' not in st.session_state:
     st.session_state.user_db = []
 
-# --- STEP 2: STABILIZE TMDB SESSION ---
+# --- 2. CORE STABILIZATION ---
 @st.cache_resource
 def get_bulletproof_session():
     session = requests.Session()
@@ -32,62 +31,61 @@ def get_bulletproof_session():
 tmdb = TMDb()
 tmdb.api_key = 'a3ce43541791ff5e752a8e62ce0fcde2'
 tmdb.session = get_bulletproof_session() 
+tmdb.language = 'en'
 movie_api, tv_api = Movie(), TV()
 discover_api, search_api = Discover(), Search()
 
-# --- STEP 3: RESTORE UI & BACKGROUND ---
+# --- 3. UI: IMAX BACKGROUND & STYLING ---
 st.set_page_config(page_title="IRFAN CINEMATIC UNIVERSE (ICU)", layout="wide", page_icon="🎬")
 
 def set_bg():
-    # Your IMAX background
     video_url = "http://googleusercontent.com/generated_video_content/10641277448723540926"
+    fallback_img = "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?q=80&w=2070"
     st.markdown(f"""
         <style>
-        .stApp {{ background: linear-gradient(rgba(0,0,0,0.85), rgba(0,0,0,0.85)), url("https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?q=80&w=2070"); background-size: cover; background-attachment: fixed; color: white; }}
+        .stApp {{ background: linear-gradient(rgba(0,0,0,0.85), rgba(0,0,0,0.85)), url("{fallback_img}"); background-size: cover; background-attachment: fixed; color: white; }}
         #bg-video {{ position: fixed; right: 0; bottom: 0; min-width: 100%; min-height: 100%; z-index: -1; filter: brightness(20%); object-fit: cover; }}
-        .play-button {{ background: #28a745 !important; color: white !important; padding: 12px; border-radius: 8px; text-decoration: none; display: block; text-align: center; font-weight: bold; margin-top: 10px; border: none; }}
+        .play-button {{ background: #28a745 !important; color: white !important; padding: 12px; border-radius: 8px; text-decoration: none; display: block; text-align: center; font-weight: bold; margin-top: 10px; border: none; transition: 0.3s; }}
+        .play-button:hover {{ background: #218838 !important; transform: scale(1.02); }}
         .ott-badge {{ background-color: #28a745; color: white; padding: 4px 10px; border-radius: 5px; font-weight: bold; display: inline-block; margin-bottom: 8px; border: 1px solid #ffffff; }}
+        .cast-text {{ color: #00ffcc; font-size: 0.9em; font-weight: bold; }}
         h1, h2, h3, p, span, label, div {{ color: white !important; }}
         </style>
         <video autoplay muted loop id="bg-video"><source src="{video_url}" type="video/mp4"></video>
         """, unsafe_allow_html=True)
 
-# --- STEP 4: ENHANCED DATA EXTRACTION (OTT & Plots) ---
+# --- 4. REAL DATA EXTRACTION (OTT, Plot, Cast, Trailers) ---
 @st.cache_data(ttl=3600)
 def get_real_details(m_id, type_str):
     try:
         obj = movie_api if type_str == "Movies" else tv_api
         res = obj.details(m_id, append_to_response="credits,watch/providers,videos")
-        plot = getattr(res, 'overview', "Plot summary not available.")
+        plot = getattr(res, 'overview', "Plot not available.")
         cast = ", ".join([c['name'] for c in getattr(res, 'credits', {}).get('cast', [])[:5]])
-        
-        # Identifies OTT Name for India
         providers = getattr(res, 'watch/providers', {}).get('results', {}).get('IN', {})
         ott_n, ott_l = None, None
         for mode in ['flatrate', 'free', 'ads']:
             if mode in providers:
                 ott_n, ott_l = providers[mode][0]['provider_name'], providers.get('link')
                 break
-        
         trailer = next((f"https://www.youtube.com/watch?v={v['key']}" for v in getattr(res, 'videos', {}).get('results', []) if v['site'] == 'YouTube'), None)
         return plot, cast, ott_n, ott_l, trailer
     except: return None, None, None, None, None
 
-# --- STEP 5: SYSTEM FLOW & LOGIN ---
+# --- 5. MAIN APP FLOW ---
 if not st.session_state.logged_in:
     set_bg()
     st.title("🎬 IRFAN CINEMATIC UNIVERSE (ICU)")
     u_name = st.text_input("Member Name").strip()
-    u_age_in = st.number_input("Age", 1, 100, 18)
-    admin_key = st.text_input("Key", type="password") if u_name.lower() == "irfan" else ""
+    u_age_in = st.number_input("Member Age", 1, 100, 18)
+    admin_key = st.text_input("Security Key", type="password") if u_name.lower() == "irfan" else ""
 
     if st.button("Enter ICU"):
         if u_name:
-            if u_name.lower() == "irfan":
-                if admin_key == "Irfan@1403": st.session_state.role = "Admin"
-                else: st.error("Wrong Key!"); st.stop()
-            else: st.session_state.role = "Subscriber"
-            
+            if u_name.lower() == "irfan" and admin_key == "Irfan@1403":
+                st.session_state.role = "Admin"
+            else:
+                st.session_state.role = "Subscriber"
             st.session_state.logged_in, st.session_state.u_name, st.session_state.u_age = True, u_name, u_age_in
             st.session_state.user_db.append({"User": u_name, "Age": u_age_in, "Role": st.session_state.role, "Time": datetime.now().strftime("%H:%M")})
             st.rerun()
@@ -97,53 +95,54 @@ else:
     app_mode = st.sidebar.radio("Navigation", ["User Portal", "Admin Command Center"]) if st.session_state.role == "Admin" else "User Portal"
 
     if app_mode == "Admin Command Center":
-        st.title("🛡️ Admin Center")
+        st.title("🛡️ Admin Command Center")
         if st.button("🚀 FULL SYSTEM REBOOT"):
             st.cache_data.clear()
             st.cache_resource.clear()
             st.success("System Rebooted!")
         st.table(pd.DataFrame(st.session_state.user_db))
     else:
-        # IRS DASHBOARD
+        # --- USER PORTAL ---
         st.sidebar.header("Filter Content")
-        m_type = st.sidebar.selectbox("Type", ["Movies", "TV Shows"])
-        
-        # STEP 6: HUMAN EMOTION MAPPING
-        mood_map = {"Laughter": 35, "Fear": 27, "Excitement": 28, "Mystery": 9648, "Sadness": 18}
+        m_type = st.sidebar.selectbox("Content Type", ["Movies", "TV Shows"])
+        mood_map = {"Laughter": 35, "Fear": 27, "Excitement": 28, "Mystery": 9648, "Emotional": 18, "Adventurous": 12}
         if st.session_state.u_age >= 18: mood_map["Love/Romantic"] = 10749
+        sel_mood = st.sidebar.selectbox("Current Emotion", ["Select"] + list(mood_map.keys()))
         
-        sel_mood = st.sidebar.selectbox("Emotion", ["Select"] + list(mood_map.keys()))
+        # Expanded Language List
         lang_map = {"Telugu": "te", "Hindi": "hi", "Tamil": "ta", "Malayalam": "ml", "Kannada": "kn", "English": "en", "Korean": "ko"}
         sel_lang = st.sidebar.selectbox("Language", ["Select"] + sorted(list(lang_map.keys())))
         sel_era = st.sidebar.selectbox("Era", ["Select", "2020-2030", "2010-2020", "2000-2010", "1990-2000"])
 
         st.title("🎬 IRFAN CINEMATIC UNIVERSE (ICU)")
-        search_query = st.text_input("🔍 Search Movies...") # RESTORED SEARCH BAR
+        st.subheader("Mood Based Movie Recommendation System")
+        search_query = st.text_input("🔍 Search Movies...")
 
         if st.button("Generate Recommendations 🚀") or search_query:
             results = []
             try:
                 if search_query:
+                    # Validating search objects to prevent 'str' error
                     results = [r for r in search_api.multi(search_query) if hasattr(r, 'id')]
                 elif sel_mood != "Select" and sel_lang != "Select" and sel_era != "Select":
                     s_year, e_year = map(int, sel_era.split('-'))
                     p = {'with_original_language': lang_map[sel_lang], 'primary_release_date.gte': f"{s_year}-01-01", 'primary_release_date.lte': f"{e_year}-12-31", 'with_genres': mood_map[sel_mood], 'sort_by': 'popularity.desc', 'include_adult': st.session_state.u_age >= 18}
                     
-                    # STEP 7: SMART FALLBACK LOGIC
-                    # Try India OTT first
+                    # SMART FALLBACK LOGIC
+                    # 1. Try Strict India OTT Search First
                     p_strict = {**p, 'watch_region': 'IN', 'with_watch_monetization_types': 'flatrate|free|ads'}
                     results = list(discover_api.discover_movies(p_strict) if m_type == "Movies" else discover_api.discover_tv_shows(p_strict))
                     
-                    # If empty, show popular titles
+                    # 2. If no OTT results, show all popular titles
                     if not results:
-                        st.info("Showing popular titles (No direct India OTT links found).")
+                        st.info("Showing popular titles (Specific India OTT links not found).")
                         results = list(discover_api.discover_movies(p) if m_type == "Movies" else discover_api.discover_tv_shows(p))
 
                 if results:
                     cols = st.columns(3)
                     processed = 0
                     for item in results:
-                        if processed >= 75: break
+                        if processed >= 75: break # Locked at 75 recommendations
                         m_id = getattr(item, 'id', None)
                         if not m_id: continue
 
@@ -153,9 +152,9 @@ else:
                         with cols[processed % 3]:
                             st.image(f"https://image.tmdb.org/t/p/w500{getattr(item, 'poster_path', '')}")
                             st.subheader(f"{getattr(item, 'title', getattr(item, 'name', ''))[:20]}")
-                            with st.expander("📖 View Real Plot & Cast"):
+                            with st.expander("📖 View Plot & Cast"):
                                 st.write(f"**Plot:** {plot}")
-                                st.write(f"**Cast:** {cast}")
+                                st.markdown(f"**Cast:** <span class='cast-text'>{cast}</span>", unsafe_allow_html=True)
                             if ott_n: st.markdown(f"<div class='ott-badge'>📺 {ott_n.upper()}</div>", unsafe_allow_html=True)
                             if trailer: st.video(trailer)
                             if ott_l: st.markdown(f'<a href="{ott_l}" target="_blank" class="play-button">▶️ PLAY NOW</a>', unsafe_allow_html=True)
