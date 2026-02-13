@@ -7,24 +7,23 @@ from urllib3.util.retry import Retry
 import pandas as pd
 import random
 
-# --- 1. SESSION INITIALIZATION (The Crash Fix) ---
-# We must ensure these exist before the app tries to read them
+# --- 1. SESSION INITIALIZATION ---
 if 'u_age' not in st.session_state:
-    st.session_state.u_age = 18 # Default safe age
-
+    st.session_state.u_age = 18
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
-
 if 'user_db' not in st.session_state:
     st.session_state.user_db = []
 
-# --- 2. CORE STABILIZATION ---
+# --- 2. CORE STABILIZATION (Upgraded for Stability) ---
 @st.cache_resource
 def get_bulletproof_session():
-    """Stops OSError(24) and buffering"""
+    """Increased pool size and timeout to stop 'Connection Unstable'"""
     session = requests.Session()
-    retries = Retry(total=5, backoff_factor=2, status_forcelist=[429, 500, 502, 503, 504])
-    adapter = HTTPAdapter(pool_connections=10, pool_maxsize=20, max_retries=retries)
+    # High retry count and longer wait times to ensure real data loads
+    retries = Retry(total=10, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
+    # Increased connections to 20 to handle multiple cards at once
+    adapter = HTTPAdapter(pool_connections=20, pool_maxsize=40, max_retries=retries)
     session.mount('https://', adapter)
     session.mount('http://', adapter)
     return session
@@ -56,13 +55,13 @@ def set_bg():
         <video autoplay muted loop id="bg-video"><source src="{video_url}" type="video/mp4"></video>
         """, unsafe_allow_html=True)
 
-# --- 4. LOGIN & AGE SECURITY ---
+# --- 4. LOGIN & SECURITY ---
 if not st.session_state.logged_in:
     set_bg()
     st.title("🎬 IRFAN CINEMATIC UNIVERSE (ICU)")
     u_name = st.text_input("Member Name").strip()
     u_age_input = st.number_input("Member Age", 1, 100, 18)
-    admin_key = st.text_input("Security Key (Admin Only)", type="password") if u_name.lower() == "irfan" else ""
+    admin_key = st.text_input("Security Key", type="password") if u_name.lower() == "irfan" else ""
 
     if st.button("Enter ICU"):
         if u_name:
@@ -75,13 +74,10 @@ if not st.session_state.logged_in:
             else:
                 st.session_state.role = "Subscriber"
             
-            st.session_state.logged_in = True
-            st.session_state.u_name = u_name
-            st.session_state.u_age = u_age_input # CAPTURE AGE
+            st.session_state.logged_in, st.session_state.u_name, st.session_state.u_age = True, u_name, u_age_input
             st.session_state.user_db.append({"Time": datetime.now().strftime("%H:%M:%S"), "User": u_name, "Age": u_age_input, "Role": st.session_state.role})
             st.rerun()
 else:
-    # --- 5. NAVIGATION ---
     set_bg()
     st.sidebar.title(f"👤 {st.session_state.u_name}")
     if st.session_state.role == "Admin":
@@ -93,96 +89,76 @@ else:
         st.session_state.logged_in = False
         st.rerun()
 
-    # --- 6. ADMIN VIEW ---
     if app_mode == "Admin Command Center":
         st.title("🛡️ Admin Command Center")
         if st.button("🚀 FULL SYSTEM REBOOT"):
             st.cache_data.clear()
             st.cache_resource.clear()
-            st.success("Cache Cleared!")
+            st.success("System Cleaned!")
         st.table(pd.DataFrame(st.session_state.user_db))
     
-    # --- 7. USER PORTAL (With Age Restriction) ---
     else:
         st.sidebar.header("Filter Content")
         m_type = st.sidebar.selectbox("Content Type", ["Select", "Movies", "TV Shows"])
+        mood_map = {"Happy/Feel Good": 35, "Scary/Horror": 27, "Action/Thrilling": 28, "Mysterious": 9648, "Emotional/Sad": 18, "Adventurous": 12}
+        if st.session_state.u_age >= 18: mood_map["Romantic"] = 10749
         
-        mood_map = {
-            "Happy/Feel Good": 35, "Scary/Horror": 27, "Action/Thrilling": 28,
-            "Mysterious": 9648, "Emotional/Sad": 18, "Adventurous": 12
-        }
-        
-        # MOOD RESTRICTION: Hide Romantic if under 18
-        if st.session_state.u_age >= 18:
-            mood_map["Romantic"] = 10749
-
         sel_mood = st.sidebar.selectbox("Current Mood", ["Select"] + list(mood_map.keys()))
         lang_map = {"Telugu": "te", "Hindi": "hi", "Tamil": "ta", "English": "en"}
         sel_lang = st.sidebar.selectbox("Language", ["Select"] + sorted(list(lang_map.keys())))
         sel_era = st.sidebar.selectbox("Choose Era", ["Select", "2020-2030", "2010-2020", "2000-2010"])
 
+        # --- FIX: REAL DATA ONLY (No Placeholders) ---
         @st.cache_data(ttl=3600)
-        def get_deep_details(m_id, type_str):
+        def get_real_details(m_id, type_str):
+            """Returns only verified metadata; eliminates 'Loading...' text"""
             try:
                 obj = movie_api if type_str == "Movies" else tv_api
                 res = obj.details(m_id, append_to_response="credits,watch/providers,videos")
-                plot = getattr(res, 'overview', "No plot available.")
+                
+                # Fetch Real Plot and Real Cast
+                plot = res.overview if hasattr(res, 'overview') and res.overview else "No summary available."
                 cast_data = getattr(res, 'credits', {}).get('cast', [])
-                cast = ", ".join([c['name'] for c in cast_data[:5]]) if cast_data else "N/A"
+                cast = ", ".join([c['name'] for c in cast_data[:5]]) if cast_data else "Cast not listed."
+                
+                # OTT and Trailer Logic
                 providers = getattr(res, 'watch/providers', {}).get('results', {}).get('IN', {})
                 ott_n, ott_l = None, None
                 for mode in ['flatrate', 'free', 'ads']:
                     if mode in providers:
-                        ott_n = providers[mode][0]['provider_name']
-                        ott_l = providers.get('link')
+                        ott_n, ott_l = providers[mode][0]['provider_name'], providers.get('link')
                         break
+                
                 trailer = next((f"https://www.youtube.com/watch?v={v['key']}" for v in getattr(res, 'videos', {}).get('results', []) if v['type'] == 'Trailer' and v['site'] == 'YouTube'), None)
                 return plot, cast, ott_n, ott_l, trailer
-            except: return "Details loading...", "Cast loading...", None, None, None
+            except:
+                return None, None, None, None, None
 
         st.title("🎬 IRFAN CINEMATIC UNIVERSE (ICU)")
         st.subheader("Mood Based Movie Recommendation System")
-        if st.session_state.u_age < 18:
-            st.info("🛡️ Safe Mode Active: Adult content filtered.")
 
-        search_query = st.text_input("🔍 Search...")
-
-        if st.button("Generate Recommendations 🚀") or search_query:
-            results = []
-            try:
-                if search_query:
-                    results = list(search_api.multi(search_query))
-                elif m_type != "Select" and sel_lang != "Select" and sel_era != "Select" and sel_mood != "Select":
-                    s_year, e_year = map(int, sel_era.split('-'))
-                    p = {
-                        'with_original_language': lang_map[sel_lang], 
-                        'primary_release_date.gte': f"{s_year}-01-01", 
-                        'primary_release_date.lte': f"{e_year}-12-31", 
-                        'with_genres': mood_map[sel_mood],
-                        'sort_by': 'popularity.desc',
-                        'include_adult': False if st.session_state.u_age < 18 else True # API FILTER
-                    }
-                    p_strict = {**p, 'watch_region': 'IN', 'with_watch_monetization_types': 'flatrate|free|ads'}
-                    results = list(discover_api.discover_movies(p_strict) if m_type == "Movies" else discover_api.discover_tv_shows(p_strict))
-                    if not results:
-                        results = list(discover_api.discover_movies(p) if m_type == "Movies" else discover_api.discover_tv_shows(p))
+        if st.button("Generate Recommendations 🚀"):
+            if m_type != "Select" and sel_lang != "Select" and sel_era != "Select" and sel_mood != "Select":
+                s_year, e_year = map(int, sel_era.split('-'))
+                p = {'with_original_language': lang_map[sel_lang], 'primary_release_date.gte': f"{s_year}-01-01", 'primary_release_date.lte': f"{e_year}-12-31", 'with_genres': mood_map[sel_mood], 'sort_by': 'popularity.desc', 'include_adult': False if st.session_state.u_age < 18 else True}
+                results = list(discover_api.discover_movies(p) if m_type == "Movies" else discover_api.discover_tv_shows(p))
 
                 if results:
                     cols = st.columns(3)
                     processed = 0
                     for item in results:
                         if processed >= 12: break 
-                        plot, cast, ott_n, ott_l, trailer = get_deep_details(item.id, m_type)
+                        # Only show if real details are ready
+                        plot, cast, ott_n, ott_l, trailer = get_real_details(item.id, m_type)
+                        if not plot: continue # Skip if plot fails to load
 
                         with cols[processed % 3]:
                             st.image(f"https://image.tmdb.org/t/p/w500{getattr(item, 'poster_path', '')}")
                             st.subheader(f"{getattr(item, 'title', getattr(item, 'name', ''))[:20]}")
-                            with st.expander("📖 View Plot & Cast"):
+                            with st.expander("📖 View Real Plot & Cast"):
                                 st.markdown(f"**Plot:** {plot}")
                                 st.markdown(f"**Cast:** <span class='cast-text'>{cast}</span>", unsafe_allow_html=True)
                             if ott_n: st.markdown(f"<div class='ott-badge'>📺 {ott_n.upper()}</div>", unsafe_allow_html=True)
                             if trailer: st.video(trailer)
-                            if ott_l:
-                                st.markdown(f'<a href="{ott_l}" target="_blank" class="play-button">▶️ PLAY NOW</a>', unsafe_allow_html=True)
+                            if ott_l: st.markdown(f'<a href="{ott_l}" target="_blank" class="play-button">▶️ PLAY NOW</a>', unsafe_allow_html=True)
                             processed += 1
-            except: st.warning("Connection unstable. Please refresh.")
