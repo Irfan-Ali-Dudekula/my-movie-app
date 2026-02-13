@@ -3,14 +3,10 @@ from tmdbv3api import TMDb, Movie, TV, Discover, Trending, Search
 from datetime import datetime
 import requests
 
-# --- 1. GLOBAL SCALING CONFIGURATION ---
-# Using Streamlit Cache to bare heavy traffic and reduce API costs
-@st.cache_resource
-def get_tmdb_session():
-    session = requests.Session()
-    adapter = requests.adapters.HTTPAdapter(pool_connections=100, pool_maxsize=100)
-    session.mount('https://', adapter)
-    return session
+# --- 1. GLOBAL SESSION FIX (Rectifies Errno 24) ---
+# Using a shared session prevents the "Too many open files" crash
+if 'http_session' not in st.session_state:
+    st.session_state.http_session = requests.Session()
 
 tmdb = TMDb()
 tmdb.api_key = 'a3ce43541791ff5e752a8e62ce0fcde2'
@@ -19,8 +15,8 @@ movie_api, tv_api = Movie(), TV()
 discover_api, trending_api = Discover(), Trending()
 search_api = Search()
 
-# --- 2. THEATER UI & BACKGROUND ---
-st.set_page_config(page_title="IRS - High Scale Edition", layout="wide", page_icon="🎬")
+# --- 2. PAGE SETUP & UI ---
+st.set_page_config(page_title="Irfan Recommendation System (IRS)", layout="wide", page_icon="🎬")
 
 def set_bg():
     video_url = "http://googleusercontent.com/generated_video_content/10641277448723540926"
@@ -29,10 +25,18 @@ def set_bg():
         <style>
         .stApp {{ background: linear-gradient(rgba(0,0,0,0.85), rgba(0,0,0,0.85)), url("{fallback_img}"); background-size: cover; background-attachment: fixed; color: white; }}
         #bg-video {{ position: fixed; right: 0; bottom: 0; min-width: 100%; min-height: 100%; z-index: -1; filter: brightness(20%); object-fit: cover; }}
-        .play-button {{ background: linear-gradient(45deg, #e50914, #ff4b4b); color: white !important; padding: 12px; border-radius: 10px; text-decoration: none; display: block; text-align: center; font-weight: bold; margin-top: 10px; border: none; }}
+        .play-button {{ 
+            background: linear-gradient(45deg, #e50914, #ff4b4b); color: white !important; 
+            padding: 12px; border-radius: 10px; text-decoration: none; display: block; 
+            text-align: center; font-weight: bold; margin-top: 10px; border: none;
+        }}
         .rating-box {{ background-color: #f5c518; color: #000; padding: 4px 8px; border-radius: 5px; font-weight: bold; display: inline-block; margin-bottom: 5px; }}
         .ott-badge {{ background-color: #28a745; color: white; padding: 4px 8px; border-radius: 5px; font-weight: bold; display: inline-block; }}
-        .ceiling-lights {{ position: fixed; top: 0; left: 0; width: 100%; height: 100px; background: radial-gradient(circle, rgba(0, 191, 255, 0.9) 1.5px, transparent 1.5px); background-size: 30px 30px; z-index: 100; animation: twinkle 3s infinite ease-in-out; }}
+        .ceiling-lights {{
+            position: fixed; top: 0; left: 0; width: 100%; height: 100px;
+            background: radial-gradient(circle, rgba(0, 191, 255, 0.9) 1.5px, transparent 1.5px);
+            background-size: 30px 30px; z-index: 100; animation: twinkle 3s infinite ease-in-out;
+        }}
         @keyframes twinkle {{ 0%, 100% {{ opacity: 0.3; }} 50% {{ opacity: 0.8; }} }}
         h1, h2, h3, p, span, label, div {{ color: white !important; }}
         </style>
@@ -65,18 +69,20 @@ else:
     sel_lang = st.sidebar.selectbox("Language", ["Select"] + list(lang_map.keys()))
     sel_era = st.sidebar.selectbox("Choose Era", ["Select", "2020-2030", "2010-2020", "2000-2010", "1990-2000", "1980-1990"])
 
-    # Caching detailed info to bare massive repeat searches
-    @st.cache_data(ttl=3600)
-    def get_cached_details(m_id, m_type):
+    def get_detailed_info(m_id, m_type):
+        """Unified OTT lookup with persistent connection"""
         try:
             res = movie_api.details(m_id, append_to_response="credits,watch/providers,videos") if m_type == "Movies" else tv_api.details(m_id, append_to_response="credits,watch/providers,videos")
             cast = ", ".join([c['name'] for c in res.get('credits', {}).get('cast', [])[:5]])
             providers = res.get('watch/providers', {}).get('results', {}).get('IN', {})
+            
             ott_n, ott_l = None, None
             if 'flatrate' in providers:
-                ott_n, ott_l = providers['flatrate'][0]['provider_name'], providers.get('link') 
+                ott_n = providers['flatrate'][0]['provider_name']
+                ott_l = providers.get('link') 
             elif 'ads' in providers:
-                ott_n, ott_l = f"{providers['ads'][0]['provider_name']} (Free)", providers.get('link')
+                ott_n = f"{providers['ads'][0]['provider_name']} (Free)"
+                ott_l = providers.get('link')
             
             trailer = None
             for v in res.get('videos', {}).get('results', []):
@@ -86,7 +92,7 @@ else:
             return cast, ott_n, ott_l, trailer
         except: return "N/A", None, None, None
 
-    # --- 5. IRS DASHBOARD ---
+    # --- 5. IRS INTERFACE ---
     set_bg()
     st.title("✨ Irfan Recommendation System (IRS)")
     search_query = st.text_input("🔍 Search Movies...")
@@ -118,9 +124,9 @@ else:
                     rd_obj = datetime.strptime(rd_str, '%Y-%m-%d')
                     if rd_obj > today_obj: continue 
 
-                    cast, ott_n, ott_l, trailer = get_cached_details(item.id, media_type if media_type != "Select" else "Movies")
+                    cast, ott_n, ott_l, trailer = get_detailed_info(item.id, media_type if media_type != "Select" else "Movies")
                     
-                    # MANDATORY OTT FILTER: Hide unreleased digital content
+                    # MANDATORY OTT FILTER
                     if not ott_n: continue
 
                     with cols[processed % 4]:
@@ -128,10 +134,12 @@ else:
                         st.subheader(getattr(item, 'title', getattr(item, 'name', ''))[:20])
                         with st.expander("👁️ View Details & Play"):
                             st.markdown(f"<div class='rating-box'>⭐ IMDb {getattr(item, 'vote_average', 0):.1f}/10</div>", unsafe_allow_html=True)
-                            st.markdown(f"<div class='ott-badge'>📺 {ott_n.upper()}</div>", unsafe_allow_html=True)
-                            if ott_n: st.markdown(f'<a href="{ott_l}" target="_blank" class="play-button">▶️ ONE-CLICK PLAY</a>', unsafe_allow_html=True)
+                            if ott_n:
+                                st.markdown(f"<div class='ott-badge'>📺 {ott_n.upper()}</div>", unsafe_allow_html=True)
+                                st.markdown(f'<a href="{ott_l}" target="_blank" class="play-button">▶️ ONE-CLICK PLAY</a>', unsafe_allow_html=True)
                             if trailer: st.video(trailer)
                             st.write(f"🎭 **Cast:** {cast}")
                             st.write(getattr(item, 'overview', ''))
                     processed += 1
-        except Exception as e: st.error(f"Error: {e}")
+        except Exception as e:
+            st.error(f"Error: {e}")
