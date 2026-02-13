@@ -10,7 +10,6 @@ import random
 # --- 1. CORE STABILIZATION ---
 @st.cache_resource
 def get_bulletproof_session():
-    """Prevents OSError(24) and keeps the connection stable"""
     session = requests.Session()
     retries = Retry(total=5, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
     adapter = HTTPAdapter(pool_connections=5, pool_maxsize=5, max_retries=retries)
@@ -61,7 +60,7 @@ if not st.session_state.logged_in:
     if st.button("Enter ICU"):
         if u_name:
             if u_name.lower() == "irfan":
-                if admin_key == "Irfan@1403": # Updated Security Key
+                if admin_key == "Irfan@1403": 
                     st.session_state.role = "Admin"
                 else:
                     st.error("Invalid Security Key!")
@@ -84,7 +83,6 @@ else:
         st.session_state.logged_in = False
         st.rerun()
 
-    # --- 5. ADMIN CENTER ---
     if app_mode == "Admin Command Center":
         st.title("🛡️ Admin Command Center")
         if st.button("🚀 FULL SYSTEM REBOOT"):
@@ -93,7 +91,6 @@ else:
             st.success("System Rebooted!")
         st.table(pd.DataFrame(st.session_state.user_db))
     
-    # --- 6. USER PORTAL ---
     else:
         st.sidebar.header("Filter Content")
         m_type = st.sidebar.selectbox("Content Type", ["Select", "Movies", "TV Shows"])
@@ -119,13 +116,11 @@ else:
                 cast = ", ".join([c['name'] for c in res.credits['cast'][:5]]) if 'credits' in res else "N/A"
                 providers = res.get('watch/providers', {}).get('results', {}).get('IN', {})
                 ott_n, ott_l = None, None
-                if 'flatrate' in providers:
-                    ott_n, ott_l = providers['flatrate'][0]['provider_name'], providers.get('link')
-                elif 'free' in providers:
-                    ott_n, ott_l = f"{providers['free'][0]['provider_name']} (Free)", providers.get('link')
-                elif 'ads' in providers:
-                    ott_n, ott_l = f"{providers['ads'][0]['provider_name']} (With Ads)", providers.get('link')
-                
+                for mode in ['flatrate', 'free', 'ads']:
+                    if mode in providers:
+                        ott_n = providers[mode][0]['provider_name']
+                        ott_l = providers.get('link')
+                        break
                 trailer = next((f"https://www.youtube.com/watch?v={v['key']}" for v in res.get('videos', {}).get('results', []) if v['type'] == 'Trailer'), None)
                 return plot, cast, ott_n, ott_l, trailer
             except: return "N/A", "N/A", None, None, None
@@ -141,17 +136,22 @@ else:
                     results = list(search_api.multi(search_query))
                 elif m_type != "Select" and sel_lang != "Select" and sel_era != "Select" and sel_mood != "Select":
                     s_year, e_year = map(int, sel_era.split('-'))
-                    # RECTIFIED PARAMETERS: Expanded monetization types to avoid empty results
+                    
+                    # --- THE FIX: SMART SEARCH LOGIC ---
                     p = {
                         'with_original_language': lang_map[sel_lang], 
                         'primary_release_date.gte': f"{s_year}-01-01", 
                         'primary_release_date.lte': f"{e_year}-12-31", 
                         'with_genres': mood_map[sel_mood],
-                        'watch_region': 'IN',
-                        'with_watch_monetization_types': 'flatrate|free|ads',
                         'sort_by': 'popularity.desc'
                     }
-                    results = list(discover_api.discover_movies(p) if m_type == "Movies" else discover_api.discover_tv_shows(p))
+                    # First try: Strict OTT filter
+                    p_strict = {**p, 'watch_region': 'IN', 'with_watch_monetization_types': 'flatrate|free|ads'}
+                    results = list(discover_api.discover_movies(p_strict) if m_type == "Movies" else discover_api.discover_tv_shows(p_strict))
+                    
+                    # Second try: If empty, remove the OTT filter to show general results
+                    if not results:
+                        results = list(discover_api.discover_movies(p) if m_type == "Movies" else discover_api.discover_tv_shows(p))
 
                 if results:
                     cols = st.columns(3)
@@ -165,22 +165,20 @@ else:
                         if not search_query and (item_year < s_year or item_year > e_year): continue
 
                         plot, cast, ott_n, ott_l, trailer = get_deep_details(item.id, m_type)
-                        
-                        # Show result if we found OTT details
-                        if ott_n:
-                            with cols[processed % 3]:
-                                st.image(f"https://image.tmdb.org/t/p/w500{getattr(item, 'poster_path', '')}")
-                                st.subheader(f"{getattr(item, 'title', getattr(item, 'name', ''))[:20]} ({item_year})")
-                                with st.expander("📖 Plot & Details"):
-                                    st.write(f"**Plot:** {plot}")
-                                    st.markdown(f"**Cast:** <span class='cast-text'>{cast}</span>", unsafe_allow_html=True)
-                                st.markdown(f"<div class='ott-badge'>📺 {ott_n.upper()}</div>", unsafe_allow_html=True)
-                                if trailer: st.video(trailer)
-                                if ott_l: st.markdown(f'<a href="{ott_l}" target="_blank" class="play-button">▶️ WATCH NOW</a>', unsafe_allow_html=True)
-                            processed += 1
-                    
-                    if processed == 0:
-                        st.warning("No streaming results found for this specific Era/Language combo. Try a different Era!")
-                else:
-                    st.info("No content found. Try adjusting your mood or language!")
-            except Exception as e: st.warning("Connection busy. Please wait 5 seconds and click again.")
+
+                        with cols[processed % 3]:
+                            st.image(f"https://image.tmdb.org/t/p/w500{getattr(item, 'poster_path', '')}")
+                            st.subheader(f"{getattr(item, 'title', getattr(item, 'name', ''))[:20]} ({item_year})")
+                            with st.expander("📖 Plot & Details"):
+                                st.write(f"**Plot:** {plot}")
+                                st.markdown(f"**Cast:** <span class='cast-text'>{cast}</span>", unsafe_allow_html=True)
+                            
+                            if ott_n:
+                                st.markdown(f"<div class='ott-badge'>📺 Available on: {ott_n.upper()}</div>", unsafe_allow_html=True)
+                            else:
+                                st.markdown(f"<div class='ott-badge' style='background-color:#555;'>📽️ Check Local Listings</div>", unsafe_allow_html=True)
+                            
+                            if trailer: st.video(trailer)
+                            if ott_l: st.markdown(f'<a href="{ott_l}" target="_blank" class="play-button">▶️ WATCH NOW</a>', unsafe_allow_html=True)
+                        processed += 1
+            except Exception as e: st.warning("Connection busy. Please click 'Reboot' in Admin Center and try again.")
