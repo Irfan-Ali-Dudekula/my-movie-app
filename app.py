@@ -10,7 +10,7 @@ import pandas as pd
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 if 'user_db' not in st.session_state:
-    st.session_state.user_db = [] #
+    st.session_state.user_db = [] 
 if 'role' not in st.session_state:
     st.session_state.role = "Subscriber"
 
@@ -73,10 +73,12 @@ apply_styles()
 if not st.session_state.logged_in:
     st.title("🎬 IRFAN CINEMATIC UNIVERSE (ICU)")
     u_name = st.text_input("Username").strip()
-    u_age = st.number_input("Age (Login Password)", 1, 100, 18)
+    u_age = st.number_input("Age", 1, 100, 18)
     
-    # Dual Password System
-    p_word = st.text_input("Security Access Password", type="password")
+    # Conditional Admin Login
+    p_word = ""
+    if u_name.lower() == "irfan":
+        p_word = st.text_input("Security Access Password", type="password")
 
     if st.button("Enter ICU") and u_name:
         if u_name.lower() == "irfan":
@@ -86,11 +88,9 @@ if not st.session_state.logged_in:
             else:
                 st.error("Invalid Admin Credentials")
         else:
-            if p_word == "ICUMember2026": # User Password
-                st.session_state.role = "Subscriber"
-                st.session_state.logged_in = True
-            else:
-                st.error("Invalid Member Password")
+            # Standard User Entry
+            st.session_state.role = "Subscriber"
+            st.session_state.logged_in = True
         
         if st.session_state.logged_in:
             st.session_state.u_name = u_name
@@ -117,7 +117,7 @@ else:
     # --- WEBSITE A: ADMIN COMMAND CENTER ---
     if app_mode == "Admin Command Center":
         st.title("🛡️ Admin Command Center")
-        st.subheader("Member Login History") #
+        st.subheader("Member Login History") 
         if st.session_state.user_db:
             st.table(pd.DataFrame(st.session_state.user_db))
         
