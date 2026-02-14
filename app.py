@@ -6,13 +6,13 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import pandas as pd
 
-# --- 1. SESSION INITIALIZATION ---
-# Light Mode removed to focus on a stable Dark Mode experience
+# --- 1. SESSION & DATABASE INITIALIZATION ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
-for key in ['role', 'u_name', 'u_age', 'user_db']:
-    if key not in st.session_state:
-        st.session_state[key] = [] if key == 'user_db' else (18 if key == 'u_age' else "Guest")
+if 'user_db' not in st.session_state:
+    st.session_state.user_db = [] # Admin Login History
+if 'role' not in st.session_state:
+    st.session_state.role = "Subscriber"
 
 # --- 2. BULLETPROOF TMDB CONNECTION ---
 @st.cache_resource
@@ -27,7 +27,7 @@ tmdb.api_key = 'a3ce43541791ff5e752a8e62ce0fcde2'
 tmdb.session = get_safe_session()
 movie_api, tv_api, discover_api, search_api = Movie(), TV(), Discover(), Search()
 
-# --- 3. UI: STABLE DARK MODE STYLING ---
+# --- 3. UI: STABLE DARK MODE & ADMIN OVERLAY ---
 st.set_page_config(page_title="IRFAN CINEMATIC UNIVERSE (ICU)", layout="wide")
 
 def apply_styles():
@@ -43,6 +43,8 @@ def apply_styles():
         [data-testid="stSidebar"] {{ background: linear-gradient(180deg, #000000 0%, #2C2C2C 100%) !important; }}
         .movie-card {{ border: 1px solid #444; padding: 15px; border-radius: 10px; background: rgba(0, 0, 0, 0.85); margin-bottom: 20px; min-height: 550px; }}
         .play-button {{ background: #28a745 !important; color: white !important; padding: 10px; border-radius: 8px; text-decoration: none; display: block; text-align: center; font-weight: bold; margin-top: 10px; }}
+        /* Admin-only Manage Tag */
+        .admin-manage {{ position: fixed; bottom: 20px; right: 20px; background: rgba(255, 0, 0, 0.7); color: white; padding: 10px 20px; border-radius: 50px; font-weight: bold; z-index: 999; }}
         h1, h2, h3, p, span, label, .stMarkdown {{ color: #ffffff !important; }}
         </style>
         """, unsafe_allow_html=True)
@@ -53,18 +55,15 @@ def fetch_details(m_id, type_str):
     try:
         obj = movie_api if type_str == "Movies" else tv_api
         res = obj.details(m_id, append_to_response="credits,watch/providers,videos")
-        
         plot = getattr(res, 'overview', "Plot summary not available.")
         credits = getattr(res, 'credits', {})
         cast = ", ".join([c['name'] for c in credits.get('cast', [])[:5]])
-        
         providers = getattr(res, 'watch/providers', {}).get('results', {}).get('IN', {})
         ott_n, ott_l = None, None
         for mode in ['flatrate', 'free', 'ads']:
             if mode in providers:
                 ott_n, ott_l = providers[mode][0]['provider_name'], providers.get('link')
                 break
-        
         trailer = next((f"https://www.youtube.com/watch?v={v['key']}" for v in getattr(res, 'videos', {}).get('results', []) if v['site'] == 'YouTube'), None)
         return plot, cast, ott_n, ott_l, trailer
     except Exception: return "Details loading...", "Cast loading...", None, None, None
@@ -74,69 +73,111 @@ apply_styles()
 
 if not st.session_state.logged_in:
     st.title("🎬 IRFAN CINEMATIC UNIVERSE (ICU)")
-    u_name = st.text_input("Member Name").strip()
-    u_age_input = st.number_input("Member Age (Age Restriction)", 1, 100, 18)
+    u_name = st.text_input("Username").strip()
     
+    # Secure Login for Admin
+    p_word = ""
+    if u_name.lower() == "irfan":
+        p_word = st.text_input("Password", type="password")
+
     if st.button("Enter ICU") and u_name:
+        if u_name.lower() == "irfan":
+            if p_word == "Irfan@1403":
+                st.session_state.role = "Admin"
+            else:
+                st.error("Invalid Admin Password")
+                st.stop()
+        else:
+            st.session_state.role = "Subscriber"
+            
         st.session_state.logged_in = True
-        st.session_state.u_name, st.session_state.u_age = u_name, u_age_input
+        st.session_state.u_name = u_name
+        # Log History for Admin
+        st.session_state.user_db.append({
+            "User": u_name, 
+            "Role": st.session_state.role, 
+            "Login Time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        })
         st.rerun()
 else:
+    # Sidebar Logout & Nav
     st.sidebar.title(f"👤 {st.session_state.u_name}")
-    st.sidebar.header("IRS Filters")
-    m_type = st.sidebar.selectbox("Content", ["Movies", "TV Shows"])
-    
-    mood_map = {"Happy": 35, "Sad": 18, "Adventures": 12, "Thrill": 53, "Excited": 28}
-    if st.session_state.u_age >= 18:
-        mood_map["Romantic"] = 10749
+    if st.sidebar.button("🚪 Log Out"):
+        st.session_state.logged_in = False
+        st.rerun()
+
+    # Admin Only Manage Tag
+    if st.session_state.role == "Admin":
+        st.markdown('<div class="admin-manage">ADMIN: MANAGE ACTIVE</div>', unsafe_allow_html=True)
+        app_mode = st.sidebar.radio("Navigation", ["User Portal", "Admin Command Center"])
+    else:
+        app_mode = "User Portal"
+
+    # --- WEBSITE A: ADMIN COMMAND CENTER ---
+    if app_mode == "Admin Command Center":
+        st.title("🛡️ Admin Command Center")
+        st.subheader("Login Data History")
+        if st.session_state.user_db:
+            st.table(pd.DataFrame(st.session_state.user_db)) # View Login History
+        else:
+            st.info("No login data recorded yet.")
+            
+        if st.button("🚀 FULL SYSTEM REBOOT"):
+            st.cache_data.clear()
+            st.cache_resource.clear()
+            st.success("System Cache Purged!")
+
+    # --- WEBSITE B: USER PORTAL ---
+    else:
+        st.sidebar.header("IRS Filters")
+        m_type = st.sidebar.selectbox("Content", ["Movies", "TV Shows"])
+        mood_map = {"Happy": 35, "Sad": 18, "Adventures": 12, "Thrill": 53, "Excited": 28, "Romantic": 10749}
+        sel_mood = st.sidebar.selectbox("Emotion", ["Select"] + list(mood_map.keys()))
         
-    sel_mood = st.sidebar.selectbox("Emotion", ["Select"] + list(mood_map.keys()))
-    
-    lang_map = {
-        "Telugu": "te", "Hindi": "hi", "Tamil": "ta", "Malayalam": "ml", "Kannada": "kn",
-        "Bengali": "bn", "Marathi": "mr", "Punjabi": "pa", "English": "en", 
-        "Korean": "ko", "Japanese": "ja", "French": "fr", "Spanish": "es", "German": "de"
-    }
-    sel_lang = st.sidebar.selectbox("Language", ["Select"] + sorted(list(lang_map.keys())))
+        lang_map = {
+            "Telugu": "te", "Hindi": "hi", "Tamil": "ta", "Malayalam": "ml", "Kannada": "kn",
+            "Bengali": "bn", "Marathi": "mr", "Punjabi": "pa", "English": "en", 
+            "Korean": "ko", "Japanese": "ja", "French": "fr", "Spanish": "es", "German": "de"
+        }
+        sel_lang = st.sidebar.selectbox("Language", ["Select"] + sorted(list(lang_map.keys())))
 
-    st.title("🎬 IRFAN CINEMATIC UNIVERSE (ICU)")
-    search_query = st.text_input("🔍 Quick Search...")
+        st.title("🎬 IRFAN CINEMATIC UNIVERSE (ICU)")
+        search_query = st.text_input("🔍 Quick Search...")
 
-    if st.button("Generate Recommendations 🚀") or search_query:
-        results = []
-        try:
-            if search_query:
-                results = [r for r in search_api.multi(search_query) if hasattr(r, 'id')]
-            elif sel_mood != "Select" and sel_lang != "Select":
-                # Multi-page fetching for high-capacity results
-                p = {'with_original_language': lang_map[sel_lang], 'with_genres': mood_map[sel_mood], 'sort_by': 'popularity.desc'}
-                for page in range(1, 5):
-                    p['page'] = page
-                    batch = list(discover_api.discover_movies(p) if m_type == "Movies" else discover_api.discover_tv_shows(p))
-                    results.extend(batch)
-                    if len(results) >= 100: break
+        if st.button("Generate Recommendations 🚀") or search_query:
+            results = []
+            try:
+                if search_query:
+                    results = [r for r in search_api.multi(search_query) if hasattr(r, 'id')]
+                elif sel_mood != "Select" and sel_lang != "Select":
+                    p = {'with_original_language': lang_map[sel_lang], 'with_genres': mood_map[sel_mood], 'sort_by': 'popularity.desc'}
+                    for page in range(1, 5):
+                        p['page'] = page
+                        batch = list(discover_api.discover_movies(p) if m_type == "Movies" else discover_api.discover_tv_shows(p))
+                        results.extend(batch)
+                        if len(results) >= 100: break
 
-            if results:
-                cols = st.columns(3)
-                processed = 0
-                for item in results:
-                    if processed >= 75: break # Locked to requested capacity
-                    m_title = getattr(item, 'title', getattr(item, 'name', 'Unknown Title'))
-                    m_id = getattr(item, 'id', None)
-                    if not m_id: continue
+                if results:
+                    cols = st.columns(3)
+                    processed = 0
+                    for item in results:
+                        if processed >= 75: break 
+                        m_title = getattr(item, 'title', getattr(item, 'name', 'Unknown Title'))
+                        m_id = getattr(item, 'id', None)
+                        if not m_id: continue
 
-                    plot, cast, ott_n, ott_l, trailer = fetch_details(m_id, m_type)
-                    with cols[processed % 3]:
-                        st.markdown(f'<div class="movie-card">', unsafe_allow_html=True)
-                        st.image(f"https://image.tmdb.org/t/p/w500{getattr(item, 'poster_path', '')}")
-                        st.subheader(m_title)
-                        with st.expander("📖 Story & Cast"):
-                            st.write(f"**Plot:** {plot}")
-                            st.write(f"**Cast:** {cast}")
-                        if ott_n: st.markdown(f"**📺 {ott_n.upper()}**")
-                        if trailer: st.video(trailer)
-                        if ott_l: st.markdown(f'<a href="{ott_l}" target="_blank" class="play-button">▶️ WATCH NOW</a>', unsafe_allow_html=True)
-                        st.markdown('</div>', unsafe_allow_html=True)
-                        processed += 1
-        except Exception:
-            st.error("Connection unstable. Please refresh.")
+                        plot, cast, ott_n, ott_l, trailer = fetch_details(m_id, m_type)
+                        with cols[processed % 3]:
+                            st.markdown(f'<div class="movie-card">', unsafe_allow_html=True)
+                            st.image(f"https://image.tmdb.org/t/p/w500{getattr(item, 'poster_path', '')}")
+                            st.subheader(m_title)
+                            with st.expander("📖 Story & Cast"):
+                                st.write(f"**Plot:** {plot}")
+                                st.write(f"**Cast:** {cast}")
+                            if ott_n: st.markdown(f"**📺 {ott_n.upper()}**")
+                            if trailer: st.video(trailer)
+                            if ott_l: st.markdown(f'<a href="{ott_l}" target="_blank" class="play-button">▶️ WATCH NOW</a>', unsafe_allow_html=True)
+                            st.markdown('</div>', unsafe_allow_html=True)
+                            processed += 1
+            except Exception:
+                st.error("Connection unstable. Please refresh.")
