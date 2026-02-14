@@ -46,29 +46,26 @@ def apply_styles():
         </style>
         """, unsafe_allow_html=True)
 
-# --- 4. DATA FETCHING (Ensures Plot/Cast Visibility) ---
+# --- 4. DATA FETCHING ---
 @st.cache_data(ttl=3600)
 def fetch_details(m_id, type_str):
     try:
         obj = movie_api if type_str == "Movies" else tv_api
         res = obj.details(m_id, append_to_response="credits,watch/providers,videos")
-        
         plot = getattr(res, 'overview', "Plot summary not available.")
         credits = getattr(res, 'credits', {})
         cast_list = credits.get('cast', [])
-        cast = ", ".join([c['name'] for c in cast_list[:5]]) if cast_list else "Cast data not available."
-        
+        cast = ", ".join([c['name'] for c in cast_list[:5]]) if cast_list else "Cast N/A"
         providers = getattr(res, 'watch/providers', {}).get('results', {}).get('IN', {})
         ott_n, ott_l = None, None
         for mode in ['flatrate', 'free', 'ads']:
             if mode in providers:
                 ott_n, ott_l = providers[mode][0]['provider_name'], providers.get('link')
                 break
-        
         trailer = next((f"https://www.youtube.com/watch?v={v['key']}" for v in getattr(res, 'videos', {}).get('results', []) if v['site'] == 'YouTube'), None)
         return plot, cast, ott_n, ott_l, trailer
     except Exception:
-        return "Details loading...", "Cast loading...", None, None, None
+        return "Loading...", "Loading...", None, None, None
 
 # --- 5. MAIN APP FLOW ---
 apply_styles()
@@ -76,8 +73,7 @@ apply_styles()
 if not st.session_state.logged_in:
     st.title("🎬 IRFAN CINEMATIC UNIVERSE (ICU)")
     u_name = st.text_input("Member Name").strip()
-    u_age_input = st.number_input("Member Age (Age Restriction)", 1, 100, 18)
-    
+    u_age_input = st.number_input("Member Age", 1, 100, 18)
     if st.button("Enter ICU") and u_name:
         st.session_state.logged_in = True
         st.session_state.u_name, st.session_state.u_age = u_name, u_age_input
@@ -86,13 +82,17 @@ else:
     st.sidebar.title(f"👤 {st.session_state.u_name}")
     st.sidebar.header("IRS Filters")
     m_type = st.sidebar.selectbox("Content", ["Movies", "TV Shows"])
-    
     mood_map = {"Happy": 35, "Sad": 18, "Adventures": 12, "Thrill": 53, "Excited": 28}
     if st.session_state.u_age >= 18:
         mood_map["Romantic"] = 10749
-        
     sel_mood = st.sidebar.selectbox("Emotion", ["Select"] + list(mood_map.keys()))
-    lang_map = {"Telugu": "te", "Hindi": "hi", "Tamil": "ta", "English": "en"}
+
+    # EXPANDED LANGUAGES
+    lang_map = {
+        "Telugu": "te", "Hindi": "hi", "Tamil": "ta", "Malayalam": "ml", "Kannada": "kn",
+        "Bengali": "bn", "Marathi": "mr", "Punjabi": "pa", "English": "en", 
+        "Korean": "ko", "Japanese": "ja", "French": "fr", "Spanish": "es", "German": "de"
+    }
     sel_lang = st.sidebar.selectbox("Language", ["Select"] + sorted(list(lang_map.keys())))
 
     st.title("🎬 IRFAN CINEMATIC UNIVERSE (ICU)")
@@ -104,13 +104,9 @@ else:
             if search_query:
                 results = [r for r in search_api.multi(search_query) if hasattr(r, 'id')]
             elif sel_mood != "Select" and sel_lang != "Select":
-                # Movie and TV discovery logic
                 p = {'with_original_language': lang_map[sel_lang], 'with_genres': mood_map[sel_mood], 'sort_by': 'popularity.desc'}
-                
-                # Layered Discovery Logic
                 p_strict = {**p, 'watch_region': 'IN', 'with_watch_monetization_types': 'flatrate|free|ads'}
                 results = list(discover_api.discover_movies(p_strict) if m_type == "Movies" else discover_api.discover_tv_shows(p_strict))
-                
                 if not results:
                     st.info("Showing popular global titles (Limited local OTT links found).")
                     results = list(discover_api.discover_movies(p) if m_type == "Movies" else discover_api.discover_tv_shows(p))
@@ -121,7 +117,6 @@ else:
                     m_title = getattr(item, 'title', getattr(item, 'name', 'Unknown Title'))
                     m_id = getattr(item, 'id', None)
                     if not m_id: continue
-
                     plot, cast, ott_n, ott_l, trailer = fetch_details(m_id, m_type)
                     with cols[i % 3]:
                         st.markdown(f'<div class="movie-card">', unsafe_allow_html=True)
@@ -135,4 +130,4 @@ else:
                         if ott_l: st.markdown(f'<a href="{ott_l}" target="_blank" class="play-button">▶️ WATCH NOW</a>', unsafe_allow_html=True)
                         st.markdown('</div>', unsafe_allow_html=True)
         except Exception:
-            st.error("Connection unstable. Please refresh the page.")
+            st.error("Connection unstable. Please refresh.")
