@@ -27,7 +27,7 @@ tmdb.api_key = 'a3ce43541791ff5e752a8e62ce0fcde2'
 tmdb.session = get_safe_session()
 movie_api, tv_api, discover_api, search_api = Movie(), TV(), Discover(), Search()
 
-# --- 3. UI: STABLE DARK MODE & ADMIN OVERLAY ---
+# --- 3. UI: STABLE DARK MODE ---
 st.set_page_config(page_title="IRFAN CINEMATIC UNIVERSE (ICU)", layout="wide")
 
 def apply_styles():
@@ -65,7 +65,7 @@ def fetch_details(m_id, type_str):
                 break
         trailer = next((f"https://www.youtube.com/watch?v={v['key']}" for v in getattr(res, 'videos', {}).get('results', []) if v['site'] == 'YouTube'), None)
         return plot, cast, ott_n, ott_l, trailer
-    except Exception: return "Details loading...", "Cast loading...", None, None, None
+    except Exception: return None, None, None, None, None
 
 # --- 5. MAIN APP FLOW ---
 apply_styles()
@@ -116,12 +116,7 @@ else:
         mood_map = {"Happy": 35, "Sad": 18, "Adventures": 12, "Thrill": 53, "Excited": 28}
         if st.session_state.u_age >= 18: mood_map["Romantic"] = 10749
         sel_mood = st.sidebar.selectbox("Emotion", ["Select"] + list(mood_map.keys()))
-        
-        # RECTIFIED: Fixed syntax error in language map
-        lang_map = {
-            "Telugu": "te", "Hindi": "hi", "Tamil": "ta", "Malayalam": "ml", "Kannada": "kn",
-            "English": "en", "Korean": "ko", "Japanese": "ja", "French": "fr"
-        }
+        lang_map = {"Telugu": "te", "Hindi": "hi", "Tamil": "ta", "Malayalam": "ml", "Kannada": "kn", "English": "en"}
         sel_lang = st.sidebar.selectbox("Language", ["Select"] + sorted(list(lang_map.keys())))
 
         st.title("🎬 IRFAN CINEMATIC UNIVERSE (ICU)")
@@ -134,7 +129,6 @@ else:
                 if search_query:
                     results = [r for r in search_api.multi(search_query) if hasattr(r, 'id')]
                 elif sel_mood != "Select" and sel_lang != "Select":
-                    # RECTIFIED: Release Status Guard added to Discovery
                     p = {
                         'with_original_language': lang_map[sel_lang], 
                         'with_genres': mood_map[sel_mood], 
@@ -142,11 +136,12 @@ else:
                         'release_date.lte': today if m_type == "Movies" else None,
                         'first_air_date.lte': today if m_type == "TV Shows" else None
                     }
-                    for page in range(1, 6):
+                    # Smart Fallback logic: Try 4 pages to find enough released titles
+                    for page in range(1, 5):
                         p['page'] = page
                         batch = list(discover_api.discover_movies(p) if m_type == "Movies" else discover_api.discover_tv_shows(p))
                         results.extend(batch)
-                        if len(results) >= 150: break
+                        if len(results) >= 100: break
 
                 if results:
                     cols = st.columns(3)
@@ -154,15 +149,13 @@ else:
                     for item in results:
                         if processed >= 75: break 
                         
-                        # RECTIFIED: Skip items with "Dark" (empty) images
                         poster = getattr(item, 'poster_path', None)
                         if not poster: continue 
                         
                         m_id = getattr(item, 'id', None)
                         plot, cast, ott_n, ott_l, trailer = fetch_details(m_id, m_type)
                         
-                        # RECTIFIED: Ensure plot is available (prevents empty cards)
-                        if not plot or plot == "Details loading...": continue
+                        if not plot: continue
 
                         with cols[processed % 3]:
                             st.markdown(f'<div class="movie-card">', unsafe_allow_html=True)
@@ -176,4 +169,6 @@ else:
                             if ott_l: st.markdown(f'<a href="{ott_l}" target="_blank" class="play-button">▶️ WATCH NOW</a>', unsafe_allow_html=True)
                             st.markdown('</div>', unsafe_allow_html=True)
                             processed += 1
-            except Exception: st.error("Connection unstable.")
+                else:
+                    st.warning("No recommendations found. Try adjusting your Emotion or Language filters.")
+            except Exception: st.error("Connection unstable. Please refresh.")
