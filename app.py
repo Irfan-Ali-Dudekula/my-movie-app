@@ -6,19 +6,20 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import pandas as pd
 
-# --- 1. GLOBAL INITIALIZATION (Fixes AttributeError Crashes) ---
+# --- 1. GLOBAL INITIALIZATION (Fixes AttributeError crashes) ---
+# This ensures variables like 'role' and 'u_age' exist before the app runs
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 if 'role' not in st.session_state:
-    st.session_state.role = "Guest"
+    st.session_state.role = "Guest" 
 if 'u_age' not in st.session_state:
-    st.session_state.u_age = 18
+    st.session_state.u_age = 18 
 if 'u_name' not in st.session_state:
     st.session_state.u_name = "Guest"
 if 'user_db' not in st.session_state:
     st.session_state.user_db = []
 
-# --- 2. CORE STABILIZATION (Prevents Connection Crashes) ---
+# --- 2. CORE STABILIZATION ---
 @st.cache_resource
 def get_bulletproof_session():
     session = requests.Session()
@@ -35,7 +36,7 @@ tmdb.language = 'en'
 movie_api, tv_api = Movie(), TV()
 discover_api, search_api = Discover(), Search()
 
-# --- 3. UI: IMAX BACKGROUND & STYLING ---
+# --- 3. UI & THEATER BACKGROUND ---
 st.set_page_config(page_title="IRFAN CINEMATIC UNIVERSE (ICU)", layout="wide", page_icon="🎬")
 
 def set_bg():
@@ -45,7 +46,8 @@ def set_bg():
         <style>
         .stApp {{ background: linear-gradient(rgba(0,0,0,0.85), rgba(0,0,0,0.85)), url("{fallback_img}"); background-size: cover; background-attachment: fixed; color: white; }}
         #bg-video {{ position: fixed; right: 0; bottom: 0; min-width: 100%; min-height: 100%; z-index: -1; filter: brightness(20%); object-fit: cover; }}
-        .play-button {{ background: #28a745 !important; color: white !important; padding: 12px; border-radius: 8px; text-decoration: none; display: block; text-align: center; font-weight: bold; margin-top: 10px; border: none; }}
+        .play-button {{ background: #28a745 !important; color: white !important; padding: 12px; border-radius: 8px; text-decoration: none; display: block; text-align: center; font-weight: bold; margin-top: 10px; border: none; transition: 0.3s; }}
+        .play-button:hover {{ background: #218838 !important; transform: scale(1.02); }}
         .ott-badge {{ background-color: #28a745; color: white; padding: 4px 10px; border-radius: 5px; font-weight: bold; display: inline-block; margin-bottom: 8px; border: 1px solid #ffffff; }}
         .cast-text {{ color: #00ffcc; font-size: 0.9em; font-weight: bold; }}
         h1, h2, h3, p, span, label, div {{ color: white !important; }}
@@ -53,13 +55,13 @@ def set_bg():
         <video autoplay muted loop id="bg-video"><source src="{video_url}" type="video/mp4"></video>
         """, unsafe_allow_html=True)
 
-# --- 4. DATA EXTRACTION ---
+# --- 4. REAL DATA EXTRACTION ---
 @st.cache_data(ttl=3600)
 def get_real_details(m_id, type_str):
     try:
         obj = movie_api if type_str == "Movies" else tv_api
         res = obj.details(m_id, append_to_response="credits,watch/providers,videos")
-        plot = getattr(res, 'overview', "No plot available.")
+        plot = getattr(res, 'overview', "Plot not available.")
         cast = ", ".join([c['name'] for c in getattr(res, 'credits', {}).get('cast', [])[:5]])
         providers = getattr(res, 'watch/providers', {}).get('results', {}).get('IN', {})
         ott_n, ott_l = None, None
@@ -77,16 +79,12 @@ if not st.session_state.logged_in:
     st.title("🎬 IRFAN CINEMATIC UNIVERSE (ICU)")
     u_name = st.text_input("Member Name").strip()
     u_age_in = st.number_input("Member Age", 1, 100, 18)
-    
-    # SECURITY KEY LOGIC
-    admin_key = ""
-    if u_name.lower() == "irfan":
-        admin_key = st.text_input("Security Key", type="password")
+    admin_key = st.text_input("Security Key", type="password") if u_name.lower() == "irfan" else ""
 
     if st.button("Enter ICU"):
         if u_name:
             if u_name.lower() == "irfan":
-                if admin_key == "Irfan@1403": # Your specific key
+                if admin_key == "Irfan@1403": 
                     st.session_state.role = "Admin"
                 else:
                     st.error("Invalid Security Key!")
@@ -111,16 +109,16 @@ else:
     else:
         # --- IRS DASHBOARD ---
         st.sidebar.header("Filter Content")
-        m_type = st.sidebar.selectbox("Content", ["Movies", "TV Shows"])
+        m_type = st.sidebar.selectbox("Content Type", ["Movies", "TV Shows"])
         mood_map = {"Laughter": 35, "Fear": 27, "Excitement": 28, "Mystery": 9648, "Emotional": 18}
         if st.session_state.u_age >= 18: mood_map["Love/Romantic"] = 10749
-        sel_mood = st.sidebar.selectbox("Current Emotion", ["Select"] + list(mood_map.keys()))
+        sel_mood = st.sidebar.selectbox("Emotion", ["Select"] + list(mood_map.keys()))
         
         # EXPANDED LANGUAGES
         lang_map = {
             "Telugu": "te", "Hindi": "hi", "Tamil": "ta", "Malayalam": "ml", "Kannada": "kn",
-            "English": "en", "Korean": "ko", "Japanese": "ja", "Bengali": "bn", "Marathi": "mr",
-            "Punjabi": "pa", "French": "fr", "Spanish": "es", "German": "de"
+            "Bengali": "bn", "Marathi": "mr", "Punjabi": "pa", "English": "en", 
+            "Korean": "ko", "Japanese": "ja", "French": "fr", "Spanish": "es", "German": "de"
         }
         sel_lang = st.sidebar.selectbox("Language", ["Select"] + sorted(list(lang_map.keys())))
 
@@ -131,6 +129,7 @@ else:
             results = []
             try:
                 if search_query:
+                    # RECTIFIED: Filter out text strings to avoid attribute errors
                     results = [r for r in search_api.multi(search_query) if hasattr(r, 'id')]
                 elif sel_mood != "Select" and sel_lang != "Select":
                     p = {'with_original_language': lang_map[sel_lang], 'with_genres': mood_map[sel_mood], 'sort_by': 'popularity.desc', 'include_adult': st.session_state.u_age >= 18}
@@ -140,7 +139,7 @@ else:
                     for page in range(1, 5):
                         p_strict['page'] = page
                         results.extend(list(discover_api.discover_movies(p_strict) if m_type == "Movies" else discover_api.discover_tv_shows(p_strict)))
-                        if len(results) >= 75: break # Locked to 75 items
+                        if len(results) >= 75: break # Locked to 75
                     
                     if not results:
                         st.info("Showing popular titles (Specific India OTT links not found).")
@@ -154,10 +153,14 @@ else:
                     processed = 0
                     for item in results:
                         if processed >= 75: break 
+                        
+                        # THE FIX: Object Validation
                         m_id = getattr(item, 'id', None)
                         if not m_id: continue
+
                         plot, cast, ott_n, ott_l, trailer = get_real_details(m_id, m_type)
-                        if not plot: continue
+                        if not plot or plot == "Plot not available.": continue
+
                         with cols[processed % 3]:
                             st.image(f"https://image.tmdb.org/t/p/w500{getattr(item, 'poster_path', '')}")
                             st.subheader(f"{getattr(item, 'title', getattr(item, 'name', ''))[:20]}")
