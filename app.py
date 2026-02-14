@@ -41,31 +41,40 @@ def apply_styles():
             color: #ffffff !important; 
         }}
         [data-testid="stSidebar"] {{ background: linear-gradient(180deg, #000000 0%, #2C2C2C 100%) !important; }}
-        .movie-card {{ border: 1px solid #444; padding: 15px; border-radius: 10px; background: rgba(0, 0, 0, 0.85); margin-bottom: 20px; min-height: 550px; }}
+        .movie-card {{ border: 1px solid #444; padding: 15px; border-radius: 10px; background: rgba(0, 0, 0, 0.85); margin-bottom: 20px; min-height: 600px; }}
         .play-button {{ background: #28a745 !important; color: white !important; padding: 10px; border-radius: 8px; text-decoration: none; display: block; text-align: center; font-weight: bold; margin-top: 10px; }}
+        .rating-badge {{ background: #f5c518; color: black; padding: 2px 8px; border-radius: 5px; font-weight: bold; }}
         .admin-manage {{ position: fixed; bottom: 20px; right: 20px; background: rgba(255, 0, 0, 0.7); color: white; padding: 10px 20px; border-radius: 50px; font-weight: bold; z-index: 999; }}
         h1, h2, h3, p, span, label, .stMarkdown {{ color: #ffffff !important; }}
         </style>
         """, unsafe_allow_html=True)
 
-# --- 4. DATA FETCHING ---
+# --- 4. DATA FETCHING (Rectified to include IMDb Rating) ---
 @st.cache_data(ttl=3600)
 def fetch_details(m_id, type_str):
     try:
         obj = movie_api if type_str == "Movies" else tv_api
         res = obj.details(m_id, append_to_response="credits,watch/providers,videos")
-        plot = getattr(res, 'overview', "Plot summary not available.")
+        
+        # New requirements: IMDb Rating and Bio
+        rating = getattr(res, 'vote_average', 0.0)
+        plot = getattr(res, 'overview', "No biography available.")
+        
+        # Cast
         credits = getattr(res, 'credits', {})
         cast = ", ".join([c['name'] for c in credits.get('cast', [])[:5]])
+        
+        # OTT Availability
         providers = getattr(res, 'watch/providers', {}).get('results', {}).get('IN', {})
         ott_n, ott_l = None, None
         for mode in ['flatrate', 'free', 'ads']:
             if mode in providers:
                 ott_n, ott_l = providers[mode][0]['provider_name'], providers.get('link')
                 break
+        
         trailer = next((f"https://www.youtube.com/watch?v={v['key']}" for v in getattr(res, 'videos', {}).get('results', []) if v['site'] == 'YouTube'), None)
-        return plot, cast, ott_n, ott_l, trailer
-    except Exception: return None, None, None, None, None
+        return plot, cast, ott_n, ott_l, trailer, rating
+    except Exception: return None, None, None, None, None, 0.0
 
 # --- 5. MAIN APP FLOW ---
 apply_styles()
@@ -136,7 +145,7 @@ else:
                         'release_date.lte': today if m_type == "Movies" else None,
                         'first_air_date.lte': today if m_type == "TV Shows" else None
                     }
-                    # Smart Fallback logic: Try 4 pages to find enough released titles
+                    # RECTIFIED: Fetch across 4 pages to find enough released titles
                     for page in range(1, 5):
                         p['page'] = page
                         batch = list(discover_api.discover_movies(p) if m_type == "Movies" else discover_api.discover_tv_shows(p))
@@ -149,11 +158,12 @@ else:
                     for item in results:
                         if processed >= 75: break 
                         
+                        # RECTIFIED: Filter out missing posters
                         poster = getattr(item, 'poster_path', None)
                         if not poster: continue 
                         
                         m_id = getattr(item, 'id', None)
-                        plot, cast, ott_n, ott_l, trailer = fetch_details(m_id, m_type)
+                        plot, cast, ott_n, ott_l, trailer, rating = fetch_details(m_id, m_type)
                         
                         if not plot: continue
 
@@ -161,8 +171,9 @@ else:
                             st.markdown(f'<div class="movie-card">', unsafe_allow_html=True)
                             st.image(f"https://image.tmdb.org/t/p/w500{poster}")
                             st.subheader(getattr(item, 'title', getattr(item, 'name', '')))
-                            with st.expander("📖 Story & Cast"):
-                                st.write(f"**Plot:** {plot}")
+                            st.markdown(f"<span class='rating-badge'>IMDb: {rating:.1f}/10</span>", unsafe_allow_html=True)
+                            with st.expander("📖 Biography & Cast"):
+                                st.write(f"**Bio:** {plot}")
                                 st.write(f"**Cast:** {cast}")
                             if ott_n: st.markdown(f"**📺 {ott_n.upper()}**")
                             if trailer: st.video(trailer)
@@ -170,5 +181,5 @@ else:
                             st.markdown('</div>', unsafe_allow_html=True)
                             processed += 1
                 else:
-                    st.warning("No recommendations found. Try adjusting your Emotion or Language filters.")
+                    st.warning("No recommendations found. Try adjusting your filters.")
             except Exception: st.error("Connection unstable. Please refresh.")
