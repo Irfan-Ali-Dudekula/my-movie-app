@@ -74,10 +74,7 @@ if not st.session_state.logged_in:
     st.title("🎬 IRFAN CINEMATIC UNIVERSE (ICU)")
     u_name = st.text_input("Username").strip()
     u_age = st.number_input("Age", 1, 100, 18)
-    
-    p_word = ""
-    if u_name.lower() == "irfan":
-        p_word = st.text_input("Security Access Password", type="password")
+    p_word = st.text_input("Security Access Password", type="password") if u_name.lower() == "irfan" else ""
 
     if st.button("Enter ICU") and u_name:
         if u_name.lower() == "irfan":
@@ -108,7 +105,6 @@ else:
 
     if app_mode == "Admin Command Center":
         st.title("🛡️ Admin Command Center")
-        st.subheader("Member Login History") 
         if st.session_state.user_db: st.table(pd.DataFrame(st.session_state.user_db))
         if st.button("🚀 FULL SYSTEM REBOOT"):
             st.cache_data.clear()
@@ -120,7 +116,12 @@ else:
         mood_map = {"Happy": 35, "Sad": 18, "Adventures": 12, "Thrill": 53, "Excited": 28}
         if st.session_state.u_age >= 18: mood_map["Romantic"] = 10749
         sel_mood = st.sidebar.selectbox("Emotion", ["Select"] + list(mood_map.keys()))
-        lang_map = {"Telugu": "te", "Hindi": "hi", "Tamil": "ta", "English": "en", "Malayalam": "ml", "Kannada": "kn"}
+        
+        # RECTIFIED: Fixed syntax error in language map
+        lang_map = {
+            "Telugu": "te", "Hindi": "hi", "Tamil": "ta", "Malayalam": "ml", "Kannada": "kn",
+            "English": "en", "Korean": "ko", "Japanese": "ja", "French": "fr"
+        }
         sel_lang = st.sidebar.selectbox("Language", ["Select"] + sorted(list(lang_map.keys())))
 
         st.title("🎬 IRFAN CINEMATIC UNIVERSE (ICU)")
@@ -129,11 +130,19 @@ else:
         if st.button("Generate Recommendations 🚀") or search_query:
             results = []
             try:
+                today = datetime.now().strftime("%Y-%m-%d")
                 if search_query:
                     results = [r for r in search_api.multi(search_query) if hasattr(r, 'id')]
                 elif sel_mood != "Select" and sel_lang != "Select":
-                    p = {'with_original_language': lang_map[sel_lang], 'with_genres': mood_map[sel_mood], 'sort_by': 'popularity.desc'}
-                    for page in range(1, 6): # Increased page search for variety
+                    # RECTIFIED: Release Status Guard added to Discovery
+                    p = {
+                        'with_original_language': lang_map[sel_lang], 
+                        'with_genres': mood_map[sel_mood], 
+                        'sort_by': 'popularity.desc',
+                        'release_date.lte': today if m_type == "Movies" else None,
+                        'first_air_date.lte': today if m_type == "TV Shows" else None
+                    }
+                    for page in range(1, 6):
                         p['page'] = page
                         batch = list(discover_api.discover_movies(p) if m_type == "Movies" else discover_api.discover_tv_shows(p))
                         results.extend(batch)
@@ -145,21 +154,20 @@ else:
                     for item in results:
                         if processed >= 75: break 
                         
-                        # RECTIFICATION: Visual Clarity Filter
+                        # RECTIFIED: Skip items with "Dark" (empty) images
                         poster = getattr(item, 'poster_path', None)
-                        if not poster: continue # Skips items without a valid image
+                        if not poster: continue 
                         
-                        m_title = getattr(item, 'title', getattr(item, 'name', 'Unknown Title'))
                         m_id = getattr(item, 'id', None)
                         plot, cast, ott_n, ott_l, trailer = fetch_details(m_id, m_type)
                         
-                        # Filter out movies with missing data that cause "dark" or empty cards
-                        if plot == "Loading..." or not plot: continue
+                        # RECTIFIED: Ensure plot is available (prevents empty cards)
+                        if not plot or plot == "Details loading...": continue
 
                         with cols[processed % 3]:
                             st.markdown(f'<div class="movie-card">', unsafe_allow_html=True)
                             st.image(f"https://image.tmdb.org/t/p/w500{poster}")
-                            st.subheader(m_title)
+                            st.subheader(getattr(item, 'title', getattr(item, 'name', '')))
                             with st.expander("📖 Story & Cast"):
                                 st.write(f"**Plot:** {plot}")
                                 st.write(f"**Cast:** {cast}")
