@@ -18,7 +18,6 @@ if 'role' not in st.session_state:
 @st.cache_resource
 def get_safe_session():
     session = requests.Session()
-    # Optimized to prevent "Too many open files" error
     retries = Retry(total=10, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
     session.mount('https://', HTTPAdapter(pool_connections=20, pool_maxsize=100, max_retries=retries))
     return session
@@ -35,17 +34,11 @@ def apply_styles():
     dark_img = "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?q=80&w=2070"
     st.markdown(f"""
         <style>
-        .stApp {{ 
-            background: linear-gradient(rgba(0,0,0,0.85), rgba(0,0,0,0.85)), url("{dark_img}"); 
-            background-size: cover; 
-            background-attachment: fixed; 
-            color: #ffffff !important; 
-        }}
+        .stApp {{ background: linear-gradient(rgba(0,0,0,0.85), rgba(0,0,0,0.85)), url("{dark_img}"); background-size: cover; background-attachment: fixed; color: #ffffff !important; }}
         [data-testid="stSidebar"] {{ background: linear-gradient(180deg, #000000 0%, #2C2C2C 100%) !important; }}
         .movie-card {{ border: 1px solid #444; padding: 15px; border-radius: 10px; background: rgba(0, 0, 0, 0.85); margin-bottom: 20px; min-height: 600px; }}
         .play-button {{ background: #28a745 !important; color: white !important; padding: 10px; border-radius: 8px; text-decoration: none; display: block; text-align: center; font-weight: bold; margin-top: 10px; }}
         .rating-badge {{ background: #f5c518; color: black; padding: 2px 8px; border-radius: 5px; font-weight: bold; margin-bottom: 5px; display: inline-block; }}
-        .admin-manage {{ position: fixed; bottom: 20px; right: 20px; background: rgba(255, 0, 0, 0.7); color: white; padding: 10px 20px; border-radius: 50px; font-weight: bold; z-index: 999; }}
         h1, h2, h3, p, span, label, .stMarkdown {{ color: #ffffff !important; }}
         </style>
         """, unsafe_allow_html=True)
@@ -82,26 +75,23 @@ if not st.session_state.logged_in:
     if st.button("Enter ICU") and u_name:
         if u_name.lower() == "irfan":
             if p_word == "Irfan@1403":
-                st.session_state.role = "Admin"
-                st.session_state.logged_in = True
+                st.session_state.role, st.session_state.logged_in = "Admin", True
             else:
                 st.error("Invalid Admin Credentials")
         else:
-            st.session_state.role = "Subscriber"
-            st.session_state.logged_in = True
+            st.session_state.role, st.session_state.logged_in = "Subscriber", True
         
         if st.session_state.logged_in:
             st.session_state.u_name, st.session_state.u_age = u_name, u_age
             st.session_state.user_db.append({"User": u_name, "Age": u_age, "Role": st.session_state.role, "Login Time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
             st.rerun()
 else:
-    st.sidebar.title(f"👤 {st.session_state.u_name}")
+    # Sidebar Logout
     if st.sidebar.button("🚪 Log Out"):
         st.session_state.logged_in = False
         st.rerun()
 
     if st.session_state.role == "Admin":
-        st.markdown('<div class="admin-manage">ADMIN: MANAGE ACTIVE</div>', unsafe_allow_html=True)
         app_mode = st.sidebar.radio("Navigation", ["User Portal", "Admin Command Center"])
     else:
         app_mode = "User Portal"
@@ -112,7 +102,7 @@ else:
         if st.button("🚀 FULL SYSTEM REBOOT"):
             st.cache_data.clear()
             st.cache_resource.clear()
-            st.success("System Rebooted!")
+            st.success("Cache Purged!")
     else:
         st.sidebar.header("IRS Filters")
         m_type = st.sidebar.selectbox("Content", ["Movies", "TV Shows"])
@@ -130,17 +120,10 @@ else:
             try:
                 today = datetime.now().strftime("%Y-%m-%d")
                 if search_query:
-                    # Prevents crashes by validating result object
-                    results = [r for r in search_api.multi(search_query) if hasattr(r, 'id')]
+                    results = [r for r in search_api.multi(search_query) if hasattr(r, 'id')] # Fix AttributeError
                 elif sel_mood != "Select" and sel_lang != "Select":
-                    p = {
-                        'with_original_language': lang_map[sel_lang], 
-                        'with_genres': mood_map[sel_mood], 
-                        'sort_by': 'popularity.desc',
-                        'release_date.lte': today if m_type == "Movies" else None,
-                        'first_air_date.lte': today if m_type == "TV Shows" else None
-                    }
-                    # RECTIFIED: Pulls more pages to ensure we find valid, released items
+                    p = {'with_original_language': lang_map[sel_lang], 'with_genres': mood_map[sel_mood], 'sort_by': 'popularity.desc'}
+                    # Smart Fallback logic: Try multiple pages
                     for page in range(1, 5):
                         p['page'] = page
                         batch = list(discover_api.discover_movies(p) if m_type == "Movies" else discover_api.discover_tv_shows(p))
@@ -152,22 +135,19 @@ else:
                     processed = 0
                     for item in results:
                         if processed >= 75: break 
-                        
                         poster = getattr(item, 'poster_path', None)
                         if not poster: continue 
                         
                         m_id = getattr(item, 'id', None)
                         plot, cast, ott_n, ott_l, trailer, rating = fetch_details(m_id, m_type)
-                        
-                        # RECTIFIED: Skip items with empty bios to prevent blank cards
-                        if not plot or plot == "No biography available.": continue
+                        if not plot: continue
 
                         with cols[processed % 3]:
                             st.markdown(f'<div class="movie-card">', unsafe_allow_html=True)
                             st.image(f"https://image.tmdb.org/t/p/w500{poster}")
                             st.subheader(getattr(item, 'title', getattr(item, 'name', '')))
                             st.markdown(f"<span class='rating-badge'>IMDb: {rating:.1f}/10</span>", unsafe_allow_html=True)
-                            with st.expander("📖 Biography & Cast"):
+                            with st.expander("📖 Bio & Cast"):
                                 st.write(f"**Bio:** {plot}")
                                 st.write(f"**Cast:** {cast}")
                             if ott_n: st.markdown(f"**📺 {ott_n.upper()}**")
@@ -176,5 +156,5 @@ else:
                             st.markdown('</div>', unsafe_allow_html=True)
                             processed += 1
                 else:
-                    st.warning("No recommendations found. Try different filters.")
-            except Exception: st.error("Connection unstable. Please refresh.")
+                    st.warning("No results found. Please check your internet or change filters.")
+            except Exception: st.error("API Connection Error. Please refresh.")
