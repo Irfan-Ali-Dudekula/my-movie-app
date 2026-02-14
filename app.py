@@ -75,32 +75,24 @@ if not st.session_state.logged_in:
     u_name = st.text_input("Username").strip()
     u_age = st.number_input("Age", 1, 100, 18)
     
-    # Conditional Admin Login
     p_word = ""
     if u_name.lower() == "irfan":
         p_word = st.text_input("Security Access Password", type="password")
 
     if st.button("Enter ICU") and u_name:
         if u_name.lower() == "irfan":
-            if p_word == "Irfan@1403": # Admin Password
+            if p_word == "Irfan@1403":
                 st.session_state.role = "Admin"
                 st.session_state.logged_in = True
             else:
                 st.error("Invalid Admin Credentials")
         else:
-            # Standard User Entry
             st.session_state.role = "Subscriber"
             st.session_state.logged_in = True
         
         if st.session_state.logged_in:
-            st.session_state.u_name = u_name
-            st.session_state.u_age = u_age
-            st.session_state.user_db.append({
-                "User": u_name, 
-                "Age": u_age,
-                "Role": st.session_state.role, 
-                "Login Time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            })
+            st.session_state.u_name, st.session_state.u_age = u_name, u_age
+            st.session_state.user_db.append({"User": u_name, "Age": u_age, "Role": st.session_state.role, "Login Time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
             st.rerun()
 else:
     st.sidebar.title(f"👤 {st.session_state.u_name}")
@@ -114,26 +106,19 @@ else:
     else:
         app_mode = "User Portal"
 
-    # --- WEBSITE A: ADMIN COMMAND CENTER ---
     if app_mode == "Admin Command Center":
         st.title("🛡️ Admin Command Center")
         st.subheader("Member Login History") 
-        if st.session_state.user_db:
-            st.table(pd.DataFrame(st.session_state.user_db))
-        
+        if st.session_state.user_db: st.table(pd.DataFrame(st.session_state.user_db))
         if st.button("🚀 FULL SYSTEM REBOOT"):
             st.cache_data.clear()
             st.cache_resource.clear()
             st.success("System Rebooted!")
-
-    # --- WEBSITE B: USER PORTAL ---
     else:
         st.sidebar.header("IRS Filters")
         m_type = st.sidebar.selectbox("Content", ["Movies", "TV Shows"])
         mood_map = {"Happy": 35, "Sad": 18, "Adventures": 12, "Thrill": 53, "Excited": 28}
-        if st.session_state.u_age >= 18:
-            mood_map["Romantic"] = 10749
-            
+        if st.session_state.u_age >= 18: mood_map["Romantic"] = 10749
         sel_mood = st.sidebar.selectbox("Emotion", ["Select"] + list(mood_map.keys()))
         lang_map = {"Telugu": "te", "Hindi": "hi", "Tamil": "ta", "English": "en", "Malayalam": "ml", "Kannada": "kn"}
         sel_lang = st.sidebar.selectbox("Language", ["Select"] + sorted(list(lang_map.keys())))
@@ -148,25 +133,32 @@ else:
                     results = [r for r in search_api.multi(search_query) if hasattr(r, 'id')]
                 elif sel_mood != "Select" and sel_lang != "Select":
                     p = {'with_original_language': lang_map[sel_lang], 'with_genres': mood_map[sel_mood], 'sort_by': 'popularity.desc'}
-                    for page in range(1, 5):
+                    for page in range(1, 6): # Increased page search for variety
                         p['page'] = page
                         batch = list(discover_api.discover_movies(p) if m_type == "Movies" else discover_api.discover_tv_shows(p))
                         results.extend(batch)
-                        if len(results) >= 100: break
+                        if len(results) >= 150: break
 
                 if results:
                     cols = st.columns(3)
                     processed = 0
                     for item in results:
                         if processed >= 75: break 
+                        
+                        # RECTIFICATION: Visual Clarity Filter
+                        poster = getattr(item, 'poster_path', None)
+                        if not poster: continue # Skips items without a valid image
+                        
                         m_title = getattr(item, 'title', getattr(item, 'name', 'Unknown Title'))
                         m_id = getattr(item, 'id', None)
-                        if not m_id: continue
-
                         plot, cast, ott_n, ott_l, trailer = fetch_details(m_id, m_type)
+                        
+                        # Filter out movies with missing data that cause "dark" or empty cards
+                        if plot == "Loading..." or not plot: continue
+
                         with cols[processed % 3]:
                             st.markdown(f'<div class="movie-card">', unsafe_allow_html=True)
-                            st.image(f"https://image.tmdb.org/t/p/w500{getattr(item, 'poster_path', '')}")
+                            st.image(f"https://image.tmdb.org/t/p/w500{poster}")
                             st.subheader(m_title)
                             with st.expander("📖 Story & Cast"):
                                 st.write(f"**Plot:** {plot}")
