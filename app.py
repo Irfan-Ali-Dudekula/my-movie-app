@@ -18,6 +18,7 @@ if 'role' not in st.session_state:
 @st.cache_resource
 def get_safe_session():
     session = requests.Session()
+    # Optimized to prevent "Too many open files" error
     retries = Retry(total=10, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
     session.mount('https://', HTTPAdapter(pool_connections=20, pool_maxsize=100, max_retries=retries))
     return session
@@ -43,35 +44,28 @@ def apply_styles():
         [data-testid="stSidebar"] {{ background: linear-gradient(180deg, #000000 0%, #2C2C2C 100%) !important; }}
         .movie-card {{ border: 1px solid #444; padding: 15px; border-radius: 10px; background: rgba(0, 0, 0, 0.85); margin-bottom: 20px; min-height: 600px; }}
         .play-button {{ background: #28a745 !important; color: white !important; padding: 10px; border-radius: 8px; text-decoration: none; display: block; text-align: center; font-weight: bold; margin-top: 10px; }}
-        .rating-badge {{ background: #f5c518; color: black; padding: 2px 8px; border-radius: 5px; font-weight: bold; }}
+        .rating-badge {{ background: #f5c518; color: black; padding: 2px 8px; border-radius: 5px; font-weight: bold; margin-bottom: 5px; display: inline-block; }}
         .admin-manage {{ position: fixed; bottom: 20px; right: 20px; background: rgba(255, 0, 0, 0.7); color: white; padding: 10px 20px; border-radius: 50px; font-weight: bold; z-index: 999; }}
         h1, h2, h3, p, span, label, .stMarkdown {{ color: #ffffff !important; }}
         </style>
         """, unsafe_allow_html=True)
 
-# --- 4. DATA FETCHING (Rectified to include IMDb Rating) ---
+# --- 4. DATA FETCHING ---
 @st.cache_data(ttl=3600)
 def fetch_details(m_id, type_str):
     try:
         obj = movie_api if type_str == "Movies" else tv_api
         res = obj.details(m_id, append_to_response="credits,watch/providers,videos")
-        
-        # New requirements: IMDb Rating and Bio
         rating = getattr(res, 'vote_average', 0.0)
         plot = getattr(res, 'overview', "No biography available.")
-        
-        # Cast
         credits = getattr(res, 'credits', {})
         cast = ", ".join([c['name'] for c in credits.get('cast', [])[:5]])
-        
-        # OTT Availability
         providers = getattr(res, 'watch/providers', {}).get('results', {}).get('IN', {})
         ott_n, ott_l = None, None
         for mode in ['flatrate', 'free', 'ads']:
             if mode in providers:
                 ott_n, ott_l = providers[mode][0]['provider_name'], providers.get('link')
                 break
-        
         trailer = next((f"https://www.youtube.com/watch?v={v['key']}" for v in getattr(res, 'videos', {}).get('results', []) if v['site'] == 'YouTube'), None)
         return plot, cast, ott_n, ott_l, trailer, rating
     except Exception: return None, None, None, None, None, 0.0
@@ -136,6 +130,7 @@ else:
             try:
                 today = datetime.now().strftime("%Y-%m-%d")
                 if search_query:
+                    # Prevents crashes by validating result object
                     results = [r for r in search_api.multi(search_query) if hasattr(r, 'id')]
                 elif sel_mood != "Select" and sel_lang != "Select":
                     p = {
@@ -145,7 +140,7 @@ else:
                         'release_date.lte': today if m_type == "Movies" else None,
                         'first_air_date.lte': today if m_type == "TV Shows" else None
                     }
-                    # RECTIFIED: Fetch across 4 pages to find enough released titles
+                    # RECTIFIED: Pulls more pages to ensure we find valid, released items
                     for page in range(1, 5):
                         p['page'] = page
                         batch = list(discover_api.discover_movies(p) if m_type == "Movies" else discover_api.discover_tv_shows(p))
@@ -158,14 +153,14 @@ else:
                     for item in results:
                         if processed >= 75: break 
                         
-                        # RECTIFIED: Filter out missing posters
                         poster = getattr(item, 'poster_path', None)
                         if not poster: continue 
                         
                         m_id = getattr(item, 'id', None)
                         plot, cast, ott_n, ott_l, trailer, rating = fetch_details(m_id, m_type)
                         
-                        if not plot: continue
+                        # RECTIFIED: Skip items with empty bios to prevent blank cards
+                        if not plot or plot == "No biography available.": continue
 
                         with cols[processed % 3]:
                             st.markdown(f'<div class="movie-card">', unsafe_allow_html=True)
@@ -181,5 +176,5 @@ else:
                             st.markdown('</div>', unsafe_allow_html=True)
                             processed += 1
                 else:
-                    st.warning("No recommendations found. Try adjusting your filters.")
+                    st.warning("No recommendations found. Try different filters.")
             except Exception: st.error("Connection unstable. Please refresh.")
