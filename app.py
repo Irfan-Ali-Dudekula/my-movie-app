@@ -7,7 +7,6 @@ from urllib3.util.retry import Retry
 import pandas as pd
 
 # --- 1. SESSION INITIALIZATION ---
-# Removed Light Theme to stabilize Dark Mode
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 for key in ['role', 'u_name', 'u_age', 'user_db']:
@@ -18,7 +17,6 @@ for key in ['role', 'u_name', 'u_age', 'user_db']:
 @st.cache_resource
 def get_safe_session():
     session = requests.Session()
-    # Prevents "Too many open files" and connection drops
     retries = Retry(total=10, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
     session.mount('https://', HTTPAdapter(pool_connections=20, pool_maxsize=100, max_retries=retries))
     return session
@@ -48,14 +46,13 @@ def apply_styles():
         </style>
         """, unsafe_allow_html=True)
 
-# --- 4. DATA FETCHING (Fixed Cast/Plot Logic) ---
+# --- 4. DATA FETCHING (Ensures Plot/Cast Visibility) ---
 @st.cache_data(ttl=3600)
 def fetch_details(m_id, type_str):
     try:
         obj = movie_api if type_str == "Movies" else tv_api
         res = obj.details(m_id, append_to_response="credits,watch/providers,videos")
         
-        # Robust attribute extraction for Cast and Plot
         plot = getattr(res, 'overview', "Plot summary not available.")
         credits = getattr(res, 'credits', {})
         cast_list = credits.get('cast', [])
@@ -98,9 +95,6 @@ else:
     lang_map = {"Telugu": "te", "Hindi": "hi", "Tamil": "ta", "English": "en"}
     sel_lang = st.sidebar.selectbox("Language", ["Select"] + sorted(list(lang_map.keys())))
 
-    # Person Search (Actor/Director)
-    target_person = st.sidebar.text_input("Search Actor/Director")
-
     st.title("🎬 IRFAN CINEMATIC UNIVERSE (ICU)")
     search_query = st.text_input("🔍 Quick Search...")
 
@@ -110,15 +104,9 @@ else:
             if search_query:
                 results = [r for r in search_api.multi(search_query) if hasattr(r, 'id')]
             elif sel_mood != "Select" and sel_lang != "Select":
-                # FIXED: Logic to support both TV and Movie discovery
+                # Movie and TV discovery logic
                 p = {'with_original_language': lang_map[sel_lang], 'with_genres': mood_map[sel_mood], 'sort_by': 'popularity.desc'}
                 
-                # Handling Person-specific filter
-                if target_person:
-                    person_search = search_api.people({'query': target_person})
-                    if person_search:
-                        p['with_people'] = person_search[0].id
-
                 # Layered Discovery Logic
                 p_strict = {**p, 'watch_region': 'IN', 'with_watch_monetization_types': 'flatrate|free|ads'}
                 results = list(discover_api.discover_movies(p_strict) if m_type == "Movies" else discover_api.discover_tv_shows(p_strict))
@@ -146,5 +134,5 @@ else:
                         if trailer: st.video(trailer)
                         if ott_l: st.markdown(f'<a href="{ott_l}" target="_blank" class="play-button">▶️ WATCH NOW</a>', unsafe_allow_html=True)
                         st.markdown('</div>', unsafe_allow_html=True)
-        except Exception as e:
+        except Exception:
             st.error("Connection unstable. Please refresh the page.")
