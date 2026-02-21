@@ -14,15 +14,17 @@ if 'user_db' not in st.session_state:
 if 'role' not in st.session_state:
     st.session_state.role = "Subscriber"
 
-# --- 2. BULLETPROOF TMDB CONNECTION ---
+# --- 2. FAST & BULLETPROOF TMDB CONNECTION ---
 @st.cache_resource
 def get_safe_session():
     session = requests.Session()
-    retries = Retry(total=10, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
-    session.mount('https://', HTTPAdapter(pool_connections=20, pool_maxsize=100, max_retries=retries))
+    # Optimized to prevent buffering and "Too many open files" error
+    retries = Retry(total=5, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504])
+    session.mount('https://', HTTPAdapter(pool_connections=50, pool_maxsize=100, max_retries=retries))
     return session
 
 tmdb = TMDb()
+# Note: Ensure this API key is active in your TMDb dashboard
 tmdb.api_key = 'a3ce43541791ff5e752a8e62ce0fcde2'
 tmdb.session = get_safe_session()
 movie_api, tv_api, discover_api, search_api = Movie(), TV(), Discover(), Search()
@@ -34,31 +36,26 @@ def apply_styles():
     dark_img = "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?q=80&w=2070"
     st.markdown(f"""
         <style>
-        .stApp {{ 
-            background: linear-gradient(rgba(0,0,0,0.85), rgba(0,0,0,0.85)), url("{dark_img}"); 
-            background-size: cover; background-attachment: fixed; color: #ffffff !important; 
-        }}
+        .stApp {{ background: linear-gradient(rgba(0,0,0,0.85), rgba(0,0,0,0.85)), url("{dark_img}"); background-size: cover; background-attachment: fixed; color: #ffffff !important; }}
         [data-testid="stSidebar"] {{ background: linear-gradient(180deg, #000000 0%, #2C2C2C 100%) !important; }}
         .movie-card {{ border: 1px solid #444; padding: 15px; border-radius: 10px; background: rgba(0, 0, 0, 0.85); margin-bottom: 20px; min-height: 600px; }}
         .play-button {{ background: #28a745 !important; color: white !important; padding: 10px; border-radius: 8px; text-decoration: none; display: block; text-align: center; font-weight: bold; margin-top: 10px; }}
         .rating-badge {{ background: #f5c518; color: black; padding: 2px 8px; border-radius: 5px; font-weight: bold; margin-bottom: 5px; display: inline-block; }}
-        .ott-label {{ color: #00d4ff; font-weight: bold; font-size: 1.1em; margin-top: 10px; display: block; }}
         h1, h2, h3, p, span, label, .stMarkdown {{ color: #ffffff !important; }}
         </style>
         """, unsafe_allow_html=True)
 
-# --- 4. DATA FETCHING (Visual Guard Integrated) ---
+# --- 4. DATA FETCHING (Optimized for Speed) ---
 @st.cache_data(ttl=3600)
 def fetch_details(m_id, type_str):
     try:
         obj = movie_api if type_str == "Movies" else tv_api
         res = obj.details(m_id, append_to_response="credits,watch/providers,videos")
-        rating = getattr(res, 'vote_average', 0.0)
         plot = getattr(res, 'overview', None)
-        
-        # Guard against blank spaces/missing bios
+        # Visual Guard: Skip titles without plots or posters
         if not plot or len(plot) < 10: return None, None, None, None, None, 0.0
         
+        rating = getattr(res, 'vote_average', 0.0)
         credits = getattr(res, 'credits', {})
         cast = ", ".join([c['name'] for c in credits.get('cast', [])[:5]])
         providers = getattr(res, 'watch/providers', {}).get('results', {}).get('IN', {})
@@ -67,7 +64,6 @@ def fetch_details(m_id, type_str):
             if mode in providers:
                 ott_n, ott_l = providers[mode][0]['provider_name'], providers.get('link')
                 break
-        
         trailer = next((f"https://www.youtube.com/watch?v={v['key']}" for v in getattr(res, 'videos', {}).get('results', []) if v['site'] == 'YouTube'), None)
         return plot, cast, ott_n, ott_l, trailer, rating
     except: return None, None, None, None, None, 0.0
@@ -83,8 +79,7 @@ if not st.session_state.logged_in:
 
     if st.button("Enter ICU") and u_name:
         if u_name.lower() == "irfan":
-            if p_word == "Irfan@1403": 
-                st.session_state.role, st.session_state.logged_in = "Admin", True
+            if p_word == "Irfan@1403": st.session_state.role, st.session_state.logged_in = "Admin", True
             else: st.error("Invalid Admin Pass"); st.stop()
         else:
             st.session_state.role, st.session_state.logged_in = "Subscriber", True
@@ -108,19 +103,19 @@ else:
         m_type = st.sidebar.selectbox("Content", ["Movies", "TV Shows"])
         mood_map = {"Happy": 35, "Sad": 18, "Adventures": 12, "Thrill": 53, "Excited": 28, "Romantic": 10749}
         sel_mood = st.sidebar.selectbox("Emotion", ["Select"] + list(mood_map.keys()))
-        lang_map = {"Telugu": "te", "Hindi": "hi", "Tamil": "ta", "English": "en", "Malayalam": "ml", "Kannada": "kn", "Korean": "ko", "Japanese": "ja"}
+        lang_map = {"Telugu": "te", "Hindi": "hi", "Tamil": "ta", "English": "en", "Malayalam": "ml", "Kannada": "kn"}
         sel_lang = st.sidebar.selectbox("Language", ["Select"] + sorted(list(lang_map.keys())))
 
         if st.button("Generate Recommendations 🚀"):
             results = []
             if sel_mood != "Select" and sel_lang != "Select":
                 p = {'with_original_language': lang_map[sel_lang], 'with_genres': mood_map[sel_mood], 'sort_by': 'popularity.desc'}
-                # Multi-page discovery ensures we find content even with strict date filters
-                for page in range(1, 6):
+                # Fetching 2 pages only for faster initial load
+                for page in range(1, 3):
                     p['page'] = page
                     batch = list(discover_api.discover_movies(p) if m_type == "Movies" else discover_api.discover_tv_shows(p))
                     results.extend(batch)
-                    if len(results) >= 150: break
+                    if len(results) >= 40: break
 
             if results:
                 cols = st.columns(3)
@@ -128,7 +123,7 @@ else:
                 for item in results:
                     if processed >= 75: break 
                     poster = getattr(item, 'poster_path', None)
-                    if not poster: continue # Skips Dark/Black Images
+                    if not poster: continue # RECTIFIED: Skips Dark Images
                     
                     plot, cast, ott_n, ott_l, trailer, rating = fetch_details(item.id, m_type)
                     if not plot: continue 
@@ -138,7 +133,7 @@ else:
                         st.image(f"https://image.tmdb.org/t/p/w500{poster}")
                         st.subheader(getattr(item, 'title', getattr(item, 'name', '')))
                         st.markdown(f"<span class='rating-badge'>IMDb: {rating:.1f}</span>", unsafe_allow_html=True)
-                        if ott_n: st.markdown(f"<span class='ott-label'>Available on: {ott_n}</span>", unsafe_allow_html=True)
+                        if ott_n: st.markdown(f"**Available on: {ott_n}**")
                         with st.expander("📖 Bio & Cast"):
                             st.write(f"**Bio:** {plot}")
                             st.write(f"**Cast:** {cast}")
@@ -147,4 +142,4 @@ else:
                         st.markdown('</div>', unsafe_allow_html=True)
                         processed += 1
             else:
-                st.warning("No results found. Please check your internet or adjust your Emotion/Language filters.")
+                st.warning("No recommendations found. Try adjusting your Emotion or Language filters.")
