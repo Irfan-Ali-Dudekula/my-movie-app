@@ -6,7 +6,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import pandas as pd
 
-# --- 1. SESSION & DATABASE INITIALIZATION ---
+# --- 1. SESSION INITIALIZATION ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 if 'user_db' not in st.session_state:
@@ -18,7 +18,6 @@ if 'role' not in st.session_state:
 @st.cache_resource
 def get_safe_session():
     session = requests.Session()
-    # Optimized to prevent "Too many open files" error
     retries = Retry(total=10, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
     session.mount('https://', HTTPAdapter(pool_connections=20, pool_maxsize=100, max_retries=retries))
     return session
@@ -28,7 +27,7 @@ tmdb.api_key = 'a3ce43541791ff5e752a8e62ce0fcde2'
 tmdb.session = get_safe_session()
 movie_api, tv_api, discover_api, search_api = Movie(), TV(), Discover(), Search()
 
-# --- 3. UI: STABLE DARK MODE ---
+# --- 3. UI: STABLE DARK MODE STYLING ---
 st.set_page_config(page_title="IRFAN CINEMATIC UNIVERSE (ICU)", layout="wide")
 
 def apply_styles():
@@ -48,7 +47,7 @@ def apply_styles():
         </style>
         """, unsafe_allow_html=True)
 
-# --- 4. DATA FETCHING ---
+# --- 4. DATA FETCHING (Visual Guard Integrated) ---
 @st.cache_data(ttl=3600)
 def fetch_details(m_id, type_str):
     try:
@@ -57,6 +56,7 @@ def fetch_details(m_id, type_str):
         rating = getattr(res, 'vote_average', 0.0)
         plot = getattr(res, 'overview', None)
         
+        # Guard against blank spaces/missing bios
         if not plot or len(plot) < 10: return None, None, None, None, None, 0.0
         
         credits = getattr(res, 'credits', {})
@@ -72,7 +72,7 @@ def fetch_details(m_id, type_str):
         return plot, cast, ott_n, ott_l, trailer, rating
     except: return None, None, None, None, None, 0.0
 
-# --- 5. MAIN FLOW ---
+# --- 5. MAIN APP FLOW ---
 apply_styles()
 
 if not st.session_state.logged_in:
@@ -85,7 +85,7 @@ if not st.session_state.logged_in:
         if u_name.lower() == "irfan":
             if p_word == "Irfan@1403": 
                 st.session_state.role, st.session_state.logged_in = "Admin", True
-            else: st.error("Wrong Admin Pass"); st.stop()
+            else: st.error("Invalid Admin Pass"); st.stop()
         else:
             st.session_state.role, st.session_state.logged_in = "Subscriber", True
         
@@ -108,18 +108,19 @@ else:
         m_type = st.sidebar.selectbox("Content", ["Movies", "TV Shows"])
         mood_map = {"Happy": 35, "Sad": 18, "Adventures": 12, "Thrill": 53, "Excited": 28, "Romantic": 10749}
         sel_mood = st.sidebar.selectbox("Emotion", ["Select"] + list(mood_map.keys()))
-        lang_map = {"Telugu": "te", "Hindi": "hi", "Tamil": "ta", "English": "en", "Malayalam": "ml", "Kannada": "kn"}
+        lang_map = {"Telugu": "te", "Hindi": "hi", "Tamil": "ta", "English": "en", "Malayalam": "ml", "Kannada": "kn", "Korean": "ko", "Japanese": "ja"}
         sel_lang = st.sidebar.selectbox("Language", ["Select"] + sorted(list(lang_map.keys())))
 
-        if st.button("Generate Recommendations 🚀") or st.text_input("Quick Search..."):
+        if st.button("Generate Recommendations 🚀"):
             results = []
             if sel_mood != "Select" and sel_lang != "Select":
                 p = {'with_original_language': lang_map[sel_lang], 'with_genres': mood_map[sel_mood], 'sort_by': 'popularity.desc'}
-                for page in range(1, 5):
+                # Multi-page discovery ensures we find content even with strict date filters
+                for page in range(1, 6):
                     p['page'] = page
                     batch = list(discover_api.discover_movies(p) if m_type == "Movies" else discover_api.discover_tv_shows(p))
                     results.extend(batch)
-                    if len(results) >= 100: break
+                    if len(results) >= 150: break
 
             if results:
                 cols = st.columns(3)
@@ -127,7 +128,7 @@ else:
                 for item in results:
                     if processed >= 75: break 
                     poster = getattr(item, 'poster_path', None)
-                    if not poster: continue 
+                    if not poster: continue # Skips Dark/Black Images
                     
                     plot, cast, ott_n, ott_l, trailer, rating = fetch_details(item.id, m_type)
                     if not plot: continue 
@@ -146,4 +147,4 @@ else:
                         st.markdown('</div>', unsafe_allow_html=True)
                         processed += 1
             else:
-                st.warning("No results found. Try changing your Emotion or Language filters.")
+                st.warning("No results found. Please check your internet or adjust your Emotion/Language filters.")
