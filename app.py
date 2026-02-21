@@ -5,16 +5,8 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import pandas as pd
-from streamlit_gsheets import GSheetsConnection # Requires: pip install st-gsheets-connection
 
-# --- 1. PERMANENT DATABASE CONNECTION (Google Sheets) ---
-# This ensures your history doesn't wipe when the app restarts
-try:
-    conn = st.connection("gsheets", type=GSheetsConnection)
-except:
-    conn = None
-
-# --- 2. SESSION INITIALIZATION ---
+# --- 1. SESSION INITIALIZATION ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 if 'user_db' not in st.session_state:
@@ -22,7 +14,7 @@ if 'user_db' not in st.session_state:
 if 'role' not in st.session_state:
     st.session_state.role = "Subscriber"
 
-# --- 3. BULLETPROOF TMDB CONNECTION ---
+# --- 2. BULLETPROOF TMDB CONNECTION ---
 @st.cache_resource
 def get_safe_session():
     session = requests.Session()
@@ -35,7 +27,7 @@ tmdb.api_key = 'a3ce43541791ff5e752a8e62ce0fcde2'
 tmdb.session = get_safe_session()
 movie_api, tv_api, discover_api, search_api = Movie(), TV(), Discover(), Search()
 
-# --- 4. UI: STABLE DARK MODE ---
+# --- 3. UI: STABLE DARK MODE ---
 st.set_page_config(page_title="IRFAN CINEMATIC UNIVERSE (ICU)", layout="wide")
 
 def apply_styles():
@@ -50,11 +42,12 @@ def apply_styles():
         .movie-card {{ border: 1px solid #444; padding: 15px; border-radius: 10px; background: rgba(0, 0, 0, 0.85); margin-bottom: 20px; min-height: 600px; }}
         .play-button {{ background: #28a745 !important; color: white !important; padding: 10px; border-radius: 8px; text-decoration: none; display: block; text-align: center; font-weight: bold; margin-top: 10px; }}
         .rating-badge {{ background: #f5c518; color: black; padding: 2px 8px; border-radius: 5px; font-weight: bold; margin-bottom: 5px; display: inline-block; }}
+        .ott-label {{ color: #00d4ff; font-weight: bold; font-size: 1.1em; margin-top: 10px; display: block; }}
         h1, h2, h3, p, span, label, .stMarkdown {{ color: #ffffff !important; }}
         </style>
         """, unsafe_allow_html=True)
 
-# --- 5. DATA FETCHING (Rectified for Crashes) ---
+# --- 4. DATA FETCHING (Enhanced OTT Detection) ---
 @st.cache_data(ttl=3600)
 def fetch_details(m_id, type_str):
     try:
@@ -62,22 +55,26 @@ def fetch_details(m_id, type_str):
         res = obj.details(m_id, append_to_response="credits,watch/providers,videos")
         rating = getattr(res, 'vote_average', 0.0)
         plot = getattr(res, 'overview', None)
-        if not plot or len(plot) < 10: return None, None, None, None, None, 0.0 # Rectify Dark Spaces
+        if not plot or len(plot) < 10: return None, None, None, None, None, 0.0
         
         credits = getattr(res, 'credits', {})
         cast = ", ".join([c['name'] for c in credits.get('cast', [])[:5]])
+        
+        # EXTRACT OTT PLATFORMS FOR INDIA
         providers = getattr(res, 'watch/providers', {}).get('results', {}).get('IN', {})
         ott_n, ott_l = None, None
+        # Check for Subscription (flatrate), Free, or Ads-supported platforms
         for mode in ['flatrate', 'free', 'ads']:
             if mode in providers:
-                ott_n, ott_l = providers[mode][0]['provider_name'], providers.get('link')
+                ott_n = providers[mode][0]['provider_name']
+                ott_l = providers.get('link')
                 break
         
         trailer = next((f"https://www.youtube.com/watch?v={v['key']}" for v in getattr(res, 'videos', {}).get('results', []) if v['site'] == 'YouTube'), None)
         return plot, cast, ott_n, ott_l, trailer, rating
     except: return None, None, None, None, None, 0.0
 
-# --- 6. MAIN FLOW ---
+# --- 5. MAIN FLOW ---
 apply_styles()
 
 if not st.session_state.logged_in:
@@ -88,20 +85,16 @@ if not st.session_state.logged_in:
 
     if st.button("Enter ICU") and u_name:
         if u_name.lower() == "irfan":
-            if p_word == "Irfan@1403": st.session_state.role, st.session_state.logged_in = "Admin", True
-            else: st.error("Wrong Admin Pass"); st.stop()
+            if p_word == "Irfan@1403": 
+                st.session_state.role, st.session_state.logged_in = "Admin", True
+            else: 
+                st.error("Wrong Admin Pass"); st.stop()
         else:
             st.session_state.role, st.session_state.logged_in = "Subscriber", True
         
         if st.session_state.logged_in:
             st.session_state.u_name, st.session_state.u_age = u_name, u_age
-            log_entry = {"User": u_name, "Age": u_age, "Role": st.session_state.role, "Time": datetime.now().strftime("%Y-%m-%d %H:%M")}
-            st.session_state.user_db.append(log_entry)
-            
-            # Save to Google Sheets if connected
-            if conn:
-                try: conn.create(data=pd.DataFrame([log_entry]))
-                except: pass
+            st.session_state.user_db.append({"User": u_name, "Age": u_age, "Role": st.session_state.role, "Time": datetime.now().strftime("%Y-%m-%d %H:%M")})
             st.rerun()
 else:
     if st.sidebar.button("🚪 Log Out"):
@@ -114,17 +107,17 @@ else:
         st.title("🛡️ Admin Center")
         st.table(pd.DataFrame(st.session_state.user_db))
     else:
-        # USER PORTAL
         st.sidebar.header("IRS Filters")
         m_type = st.sidebar.selectbox("Content", ["Movies", "TV Shows"])
-        mood_map = {"Happy": 35, "Sad": 18, "Adventures": 12, "Thrill": 53, "Excited": 28}
+        mood_map = {"Happy": 35, "Sad": 18, "Adventures": 12, "Thrill": 53, "Excited": 28, "Romantic": 10749}
         sel_mood = st.sidebar.selectbox("Emotion", ["Select"] + list(mood_map.keys()))
-        lang_map = {"Telugu": "te", "Hindi": "hi", "Tamil": "ta", "English": "en"}
+        lang_map = {"Telugu": "te", "Hindi": "hi", "Tamil": "ta", "English": "en", "Korean": "ko", "Japanese": "ja"}
         sel_lang = st.sidebar.selectbox("Language", ["Select"] + sorted(list(lang_map.keys())))
 
         if st.button("Generate Recommendations 🚀"):
             results = []
             if sel_mood != "Select" and sel_lang != "Select":
+                # Smart discovery with page crawling
                 p = {'with_original_language': lang_map[sel_lang], 'with_genres': mood_map[sel_mood], 'sort_by': 'popularity.desc'}
                 for page in range(1, 6):
                     p['page'] = page
@@ -141,17 +134,24 @@ else:
                     if not poster: continue 
                     
                     plot, cast, ott_n, ott_l, trailer, rating = fetch_details(item.id, m_type)
-                    if not plot: continue # Skips Dark Spaces
+                    if not plot: continue 
 
                     with cols[processed % 3]:
                         st.markdown(f'<div class="movie-card">', unsafe_allow_html=True)
                         st.image(f"https://image.tmdb.org/t/p/w500{poster}")
                         st.subheader(getattr(item, 'title', getattr(item, 'name', '')))
                         st.markdown(f"<span class='rating-badge'>IMDb: {rating:.1f}</span>", unsafe_allow_html=True)
+                        
+                        # DISPLAY OTT PLATFORM NAME
+                        if ott_n:
+                            st.markdown(f"<span class='ott-label'>Available on: {ott_n}</span>", unsafe_allow_html=True)
+                        else:
+                            st.markdown("<span class='ott-label'>Check local listings</span>", unsafe_allow_html=True)
+
                         with st.expander("📖 Bio & Cast"):
                             st.write(f"**Bio:** {plot}")
                             st.write(f"**Cast:** {cast}")
-                        if ott_n: st.markdown(f"**📺 {ott_n.upper()}**")
+                        
                         if trailer: st.video(trailer)
                         if ott_l: st.markdown(f'<a href="{ott_l}" target="_blank" class="play-button">▶️ WATCH NOW</a>', unsafe_allow_html=True)
                         st.markdown('</div>', unsafe_allow_html=True)
