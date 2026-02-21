@@ -45,20 +45,20 @@ def apply_styles():
         </style>
         """, unsafe_allow_html=True)
 
-# --- 4. DATA FETCHING (Enhanced OTT Detection) ---
+# --- 4. DATA FETCHING ---
 @st.cache_data(ttl=3600)
 def fetch_details(m_id, type_str):
     try:
         obj = movie_api if type_str == "Movies" else tv_api
         res = obj.details(m_id, append_to_response="credits,watch/providers,videos")
         plot = getattr(res, 'overview', None)
-        # Visual Guard: Skip titles without plots
+        # Skip titles without plot descriptions to avoid "dark spaces"
         if not plot or len(plot) < 10: return None, None, None, None, None
         
         credits = getattr(res, 'credits', {})
         cast = ", ".join([c['name'] for c in credits.get('cast', [])[:5]])
         
-        # EXTRACT OTT PLATFORMS FOR INDIA
+        # Extract OTT for India
         providers = getattr(res, 'watch/providers', {}).get('results', {}).get('IN', {})
         ott_n, ott_l = None, None
         for mode in ['flatrate', 'free', 'ads']:
@@ -100,24 +100,25 @@ else:
             if search_query:
                 results = [r for r in search_api.multi(search_query) if hasattr(r, 'id')]
             elif sel_mood != "Select" and sel_lang != "Select":
-                # RECTIFIED: Dual-Layer Discovery Logic
+                # Fixed Discovery Logic for TV Shows
                 p = {'with_original_language': lang_map[sel_lang], 'with_genres': mood_map[sel_mood], 'sort_by': 'popularity.desc'}
                 p_strict = {**p, 'watch_region': 'IN', 'with_watch_monetization_types': 'flatrate|free|ads'}
                 
-                # Try India-specific OTT first
+                # Attempt strict local search
                 results = list(discover_api.discover_movies(p_strict) if m_type == "Movies" else discover_api.discover_tv_shows(p_strict))
                 
+                # Fallback to global if local results are empty
                 if not results:
-                    st.info("Expanding search to popular global titles.")
+                    st.info("Broadening search to global popular titles.")
                     results = list(discover_api.discover_movies(p) if m_type == "Movies" else discover_api.discover_tv_shows(p))
 
             if results:
                 cols = st.columns(3)
                 processed = 0
                 for item in results:
-                    if processed >= 75: break 
+                    if processed >= 15: break 
                     poster = getattr(item, 'poster_path', None)
-                    if not poster: continue # RECTIFIED: Skips Dark Images
+                    if not poster: continue # Skip items without posters
                     
                     plot, cast, ott_n, ott_l, trailer = fetch_details(item.id, m_type)
                     if not plot: continue 
@@ -127,7 +128,7 @@ else:
                         st.image(f"https://image.tmdb.org/t/p/w500{poster}")
                         st.subheader(getattr(item, 'title', getattr(item, 'name', '')))
                         
-                        # DISPLAY OTT PLATFORM NAME
+                        # Display OTT Platform Label
                         if ott_n:
                             st.markdown(f"<span class='ott-label'>Available on: {ott_n}</span>", unsafe_allow_html=True)
                         else:
