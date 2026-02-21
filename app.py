@@ -42,11 +42,12 @@ def apply_styles():
         [data-testid="stSidebar"] {{ background: linear-gradient(180deg, #000000 0%, #2C2C2C 100%) !important; }}
         .movie-card {{ border: 1px solid #444; padding: 15px; border-radius: 10px; background: rgba(0, 0, 0, 0.85); margin-bottom: 20px; }}
         .play-button {{ background: #28a745 !important; color: white !important; padding: 10px; border-radius: 8px; text-decoration: none; display: block; text-align: center; font-weight: bold; margin-top: 10px; }}
+        .ott-label {{ color: #00d4ff; font-weight: bold; font-size: 1.1em; margin-bottom: 5px; display: block; }}
         h1, h2, h3, p, span, label, .stMarkdown {{ color: #ffffff !important; }}
         </style>
         """, unsafe_allow_html=True)
 
-# --- 4. DATA FETCHING ---
+# --- 4. DATA FETCHING (Enhanced OTT Detection) ---
 @st.cache_data(ttl=3600)
 def fetch_details(m_id, type_str):
     try:
@@ -56,12 +57,16 @@ def fetch_details(m_id, type_str):
         credits = getattr(res, 'credits', {})
         cast_list = credits.get('cast', [])
         cast = ", ".join([c['name'] for c in cast_list[:5]]) if cast_list else "Cast N/A"
+        
+        # EXTRACT OTT PLATFORMS FOR INDIA
         providers = getattr(res, 'watch/providers', {}).get('results', {}).get('IN', {})
         ott_n, ott_l = None, None
         for mode in ['flatrate', 'free', 'ads']:
             if mode in providers:
-                ott_n, ott_l = providers[mode][0]['provider_name'], providers.get('link')
+                ott_n = providers[mode][0]['provider_name']
+                ott_l = providers.get('link')
                 break
+        
         trailer = next((f"https://www.youtube.com/watch?v={v['key']}" for v in getattr(res, 'videos', {}).get('results', []) if v['site'] == 'YouTube'), None)
         return plot, cast, ott_n, ott_l, trailer
     except Exception:
@@ -82,12 +87,9 @@ else:
     st.sidebar.title(f"👤 {st.session_state.u_name}")
     st.sidebar.header("IRS Filters")
     m_type = st.sidebar.selectbox("Content", ["Movies", "TV Shows"])
-    mood_map = {"Happy": 35, "Sad": 18, "Adventures": 12, "Thrill": 53, "Excited": 28}
-    if st.session_state.u_age >= 18:
-        mood_map["Romantic"] = 10749
+    mood_map = {"Happy": 35, "Sad": 18, "Adventures": 12, "Thrill": 53, "Excited": 28, "Romantic": 10749}
     sel_mood = st.sidebar.selectbox("Emotion", ["Select"] + list(mood_map.keys()))
 
-    # EXPANDED LANGUAGES
     lang_map = {
         "Telugu": "te", "Hindi": "hi", "Tamil": "ta", "Malayalam": "ml", "Kannada": "kn",
         "Bengali": "bn", "Marathi": "mr", "Punjabi": "pa", "English": "en", 
@@ -117,15 +119,23 @@ else:
                     m_title = getattr(item, 'title', getattr(item, 'name', 'Unknown Title'))
                     m_id = getattr(item, 'id', None)
                     if not m_id: continue
+                    
                     plot, cast, ott_n, ott_l, trailer = fetch_details(m_id, m_type)
                     with cols[i % 3]:
                         st.markdown(f'<div class="movie-card">', unsafe_allow_html=True)
                         st.image(f"https://image.tmdb.org/t/p/w500{getattr(item, 'poster_path', '')}")
                         st.subheader(m_title)
+                        
+                        # DISPLAY OTT PLATFORM NAME
+                        if ott_n:
+                            st.markdown(f"<span class='ott-label'>Available on: {ott_n}</span>", unsafe_allow_html=True)
+                        else:
+                            st.markdown("<span class='ott-label'>Check local listings</span>", unsafe_allow_html=True)
+
                         with st.expander("📖 Story & Cast"):
                             st.write(f"**Plot:** {plot}")
                             st.write(f"**Cast:** {cast}")
-                        if ott_n: st.markdown(f"**📺 {ott_n.upper()}**")
+                        
                         if trailer: st.video(trailer)
                         if ott_l: st.markdown(f'<a href="{ott_l}" target="_blank" class="play-button">▶️ WATCH NOW</a>', unsafe_allow_html=True)
                         st.markdown('</div>', unsafe_allow_html=True)
