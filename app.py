@@ -35,12 +35,10 @@ def apply_styles():
         <style>
         .stApp {{ 
             background: linear-gradient(rgba(0,0,0,0.85), rgba(0,0,0,0.85)), url("{dark_img}"); 
-            background-size: cover; 
-            background-attachment: fixed; 
-            color: #ffffff !important; 
+            background-size: cover; background-attachment: fixed; color: #ffffff !important; 
         }}
         [data-testid="stSidebar"] {{ background: linear-gradient(180deg, #000000 0%, #2C2C2C 100%) !important; }}
-        .movie-card {{ border: 1px solid #444; padding: 15px; border-radius: 10px; background: rgba(0, 0, 0, 0.85); margin-bottom: 20px; }}
+        .movie-card {{ border: 1px solid #444; padding: 15px; border-radius: 10px; background: rgba(0, 0, 0, 0.85); margin-bottom: 20px; min-height: 600px; }}
         .play-button {{ background: #28a745 !important; color: white !important; padding: 10px; border-radius: 8px; text-decoration: none; display: block; text-align: center; font-weight: bold; margin-top: 10px; }}
         .ott-label {{ color: #00d4ff; font-weight: bold; font-size: 1.1em; margin-bottom: 5px; display: block; }}
         h1, h2, h3, p, span, label, .stMarkdown {{ color: #ffffff !important; }}
@@ -53,10 +51,12 @@ def fetch_details(m_id, type_str):
     try:
         obj = movie_api if type_str == "Movies" else tv_api
         res = obj.details(m_id, append_to_response="credits,watch/providers,videos")
-        plot = getattr(res, 'overview', "Plot summary not available.")
+        plot = getattr(res, 'overview', None)
+        # Visual Guard: Skip titles without plots
+        if not plot or len(plot) < 10: return None, None, None, None, None
+        
         credits = getattr(res, 'credits', {})
-        cast_list = credits.get('cast', [])
-        cast = ", ".join([c['name'] for c in cast_list[:5]]) if cast_list else "Cast N/A"
+        cast = ", ".join([c['name'] for c in credits.get('cast', [])[:5]])
         
         # EXTRACT OTT PLATFORMS FOR INDIA
         providers = getattr(res, 'watch/providers', {}).get('results', {}).get('IN', {})
@@ -69,8 +69,7 @@ def fetch_details(m_id, type_str):
         
         trailer = next((f"https://www.youtube.com/watch?v={v['key']}" for v in getattr(res, 'videos', {}).get('results', []) if v['site'] == 'YouTube'), None)
         return plot, cast, ott_n, ott_l, trailer
-    except Exception:
-        return "Loading...", "Loading...", None, None, None
+    except: return None, None, None, None, None
 
 # --- 5. MAIN APP FLOW ---
 apply_styles()
@@ -89,12 +88,7 @@ else:
     m_type = st.sidebar.selectbox("Content", ["Movies", "TV Shows"])
     mood_map = {"Happy": 35, "Sad": 18, "Adventures": 12, "Thrill": 53, "Excited": 28, "Romantic": 10749}
     sel_mood = st.sidebar.selectbox("Emotion", ["Select"] + list(mood_map.keys()))
-
-    lang_map = {
-        "Telugu": "te", "Hindi": "hi", "Tamil": "ta", "Malayalam": "ml", "Kannada": "kn",
-        "Bengali": "bn", "Marathi": "mr", "Punjabi": "pa", "English": "en", 
-        "Korean": "ko", "Japanese": "ja", "French": "fr", "Spanish": "es", "German": "de"
-    }
+    lang_map = {"Telugu": "te", "Hindi": "hi", "Tamil": "ta", "Malayalam": "ml", "Kannada": "kn", "English": "en"}
     sel_lang = st.sidebar.selectbox("Language", ["Select"] + sorted(list(lang_map.keys())))
 
     st.title("🎬 IRFAN CINEMATIC UNIVERSE (ICU)")
@@ -106,31 +100,38 @@ else:
             if search_query:
                 results = [r for r in search_api.multi(search_query) if hasattr(r, 'id')]
             elif sel_mood != "Select" and sel_lang != "Select":
+                # RECTIFIED: Dual-Layer Discovery Logic
                 p = {'with_original_language': lang_map[sel_lang], 'with_genres': mood_map[sel_mood], 'sort_by': 'popularity.desc'}
                 p_strict = {**p, 'watch_region': 'IN', 'with_watch_monetization_types': 'flatrate|free|ads'}
+                
+                # Try India-specific OTT first
                 results = list(discover_api.discover_movies(p_strict) if m_type == "Movies" else discover_api.discover_tv_shows(p_strict))
+                
                 if not results:
-                    st.info("Showing popular global titles (Limited local OTT links found).")
+                    st.info("Expanding search to popular global titles.")
                     results = list(discover_api.discover_movies(p) if m_type == "Movies" else discover_api.discover_tv_shows(p))
 
             if results:
                 cols = st.columns(3)
-                for i, item in enumerate(results[:15]):
-                    m_title = getattr(item, 'title', getattr(item, 'name', 'Unknown Title'))
-                    m_id = getattr(item, 'id', None)
-                    if not m_id: continue
+                processed = 0
+                for item in results:
+                    if processed >= 75: break 
+                    poster = getattr(item, 'poster_path', None)
+                    if not poster: continue # RECTIFIED: Skips Dark Images
                     
-                    plot, cast, ott_n, ott_l, trailer = fetch_details(m_id, m_type)
-                    with cols[i % 3]:
+                    plot, cast, ott_n, ott_l, trailer = fetch_details(item.id, m_type)
+                    if not plot: continue 
+
+                    with cols[processed % 3]:
                         st.markdown(f'<div class="movie-card">', unsafe_allow_html=True)
-                        st.image(f"https://image.tmdb.org/t/p/w500{getattr(item, 'poster_path', '')}")
-                        st.subheader(m_title)
+                        st.image(f"https://image.tmdb.org/t/p/w500{poster}")
+                        st.subheader(getattr(item, 'title', getattr(item, 'name', '')))
                         
                         # DISPLAY OTT PLATFORM NAME
                         if ott_n:
                             st.markdown(f"<span class='ott-label'>Available on: {ott_n}</span>", unsafe_allow_html=True)
                         else:
-                            st.markdown("<span class='ott-label'>Check local listings</span>", unsafe_allow_html=True)
+                            st.markdown("<span class='ott-label'>Available on: Local Listings</span>", unsafe_allow_html=True)
 
                         with st.expander("📖 Story & Cast"):
                             st.write(f"**Plot:** {plot}")
@@ -139,5 +140,6 @@ else:
                         if trailer: st.video(trailer)
                         if ott_l: st.markdown(f'<a href="{ott_l}" target="_blank" class="play-button">▶️ WATCH NOW</a>', unsafe_allow_html=True)
                         st.markdown('</div>', unsafe_allow_html=True)
+                        processed += 1
         except Exception:
             st.error("Connection unstable. Please refresh.")
