@@ -32,7 +32,7 @@ st.set_page_config(page_title="IRFAN CINEMATIC UNIVERSE (ICU)", layout="wide")
 
 def apply_styles():
     dark_img = "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?q=80&w=2070"
-    # RECTIFIED: Fixed CSS Syntax Error
+    # RECTIFIED: Fixed CSS Braces to prevent TokenError
     st.markdown(f"""
         <style>
         .stApp {{ 
@@ -57,18 +57,16 @@ def fetch_details(m_id, type_str):
         rating = getattr(res, 'vote_average', 0.0)
         plot = getattr(res, 'overview', None)
         
-        # RECTIFIED: Validates Bio to prevent empty cards
+        # RECTIFIED: Skips items with empty plots (prevents dark spaces)
         if not plot or len(plot) < 10: return None, None, None, None, None, 0.0
         
         credits = getattr(res, 'credits', {})
         cast = ", ".join([c['name'] for c in credits.get('cast', [])[:5]])
-        
         providers = getattr(res, 'watch/providers', {}).get('results', {}).get('IN', {})
         ott_n, ott_l = None, None
         for mode in ['flatrate', 'free', 'ads']:
             if mode in providers:
-                ott_n = providers[mode][0]['provider_name']
-                ott_l = providers.get('link')
+                ott_n, ott_l = providers[mode][0]['provider_name'], providers.get('link')
                 break
         
         trailer = next((f"https://www.youtube.com/watch?v={v['key']}" for v in getattr(res, 'videos', {}).get('results', []) if v['site'] == 'YouTube'), None)
@@ -136,7 +134,7 @@ else:
                 for item in results:
                     if processed >= 75: break 
                     poster = getattr(item, 'poster_path', None)
-                    if not poster: continue # RECTIFIED: Skips Dark Spaces
+                    if not poster: continue # RECTIFIED: Skips Dark Images
                     
                     plot, cast, ott_n, ott_l, trailer, rating = fetch_details(item.id, m_type)
                     if not plot: continue 
@@ -156,5 +154,3 @@ else:
                         if ott_l: st.markdown(f'<a href="{ott_l}" target="_blank" class="play-button">▶️ WATCH NOW</a>', unsafe_allow_html=True)
                         st.markdown('</div>', unsafe_allow_html=True)
                         processed += 1
-            else:
-                st.warning("No recommendations found. Try adjusting your filters.")
