@@ -42,6 +42,7 @@ def apply_styles():
         .movie-card {{ border: 1px solid #444; padding: 15px; border-radius: 10px; background: rgba(0, 0, 0, 0.85); margin-bottom: 20px; min-height: 600px; }}
         .play-button {{ background: #28a745 !important; color: white !important; padding: 10px; border-radius: 8px; text-decoration: none; display: block; text-align: center; font-weight: bold; margin-top: 10px; }}
         .ott-label {{ color: #00d4ff; font-weight: bold; font-size: 1.1em; margin-bottom: 5px; display: block; }}
+        .rating-badge {{ background: #f5c518; color: #000; padding: 2px 8px; border-radius: 5px; font-weight: bold; }}
         h1, h2, h3, p, span, label, .stMarkdown {{ color: #ffffff !important; }}
         </style>
         """, unsafe_allow_html=True)
@@ -53,8 +54,9 @@ def fetch_details(m_id):
         res = movie_api.details(m_id, append_to_response="credits,watch/providers,videos")
         plot = getattr(res, 'overview', None)
         # Visual Guard: Skip titles without plots or posters
-        if not plot or len(plot) < 10: return None, None, None, None, None
+        if not plot or len(plot) < 10: return None, None, None, None, None, 0.0
         
+        rating = getattr(res, 'vote_average', 0.0)
         credits = getattr(res, 'credits', {})
         cast = ", ".join([c['name'] for c in credits.get('cast', [])[:5]])
         providers = getattr(res, 'watch/providers', {}).get('results', {}).get('IN', {})
@@ -64,8 +66,8 @@ def fetch_details(m_id):
                 ott_n, ott_l = providers[mode][0]['provider_name'], providers.get('link')
                 break
         trailer = next((f"https://www.youtube.com/watch?v={v['key']}" for v in getattr(res, 'videos', {}).get('results', []) if v['site'] == 'YouTube'), None)
-        return plot, cast, ott_n, ott_l, trailer
-    except: return None, None, None, None, None
+        return plot, cast, ott_n, ott_l, trailer, rating
+    except: return None, None, None, None, None, 0.0
 
 # --- 5. MAIN APP FLOW ---
 apply_styles()
@@ -115,13 +117,14 @@ else:
                     poster = getattr(item, 'poster_path', None)
                     if not poster: continue # Visual Guard against dark spaces
                     
-                    plot, cast, ott_n, ott_l, trailer = fetch_details(item.id)
+                    plot, cast, ott_n, ott_l, trailer, rating = fetch_details(item.id)
                     if not plot: continue 
 
                     with cols[processed % 3]:
                         st.markdown(f'<div class="movie-card">', unsafe_allow_html=True)
                         st.image(f"https://image.tmdb.org/t/p/w500{poster}")
                         st.subheader(getattr(item, 'title', 'Unknown Title'))
+                        st.markdown(f"<span class='rating-badge'>⭐ {rating:.1f}</span>", unsafe_allow_html=True)
                         if ott_n: st.markdown(f"<span class='ott-label'>Available on: {ott_n}</span>", unsafe_allow_html=True)
                         else: st.markdown("<span class='ott-label'>Available on: Local Listings</span>", unsafe_allow_html=True)
                         with st.expander("📖 Story & Cast"):
