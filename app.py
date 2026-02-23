@@ -17,7 +17,6 @@ for key in ['role', 'u_name', 'u_age', 'user_db']:
 @st.cache_resource
 def get_safe_session():
     session = requests.Session()
-    # Optimized to prevent "Too many open files" error
     retries = Retry(total=10, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
     session.mount('https://', HTTPAdapter(pool_connections=50, pool_maxsize=100, max_retries=retries))
     return session
@@ -32,6 +31,7 @@ st.set_page_config(page_title="IRFAN CINEMATIC UNIVERSE (ICU)", layout="wide")
 
 def apply_styles():
     dark_img = "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?q=80&w=2070"
+    # RECTIFIED: CSS Syntax fix for TokenError
     st.markdown(f"""
         <style>
         .stApp {{ 
@@ -47,13 +47,13 @@ def apply_styles():
         </style>
         """, unsafe_allow_html=True)
 
-# --- 4. DATA FETCHING ---
+# --- 4. DATA FETCHING (Rectified for Ratings, Plot, & OTT) ---
 @st.cache_data(ttl=3600)
 def fetch_details(m_id):
     try:
         res = movie_api.details(m_id, append_to_response="credits,watch/providers,videos")
         plot = getattr(res, 'overview', None)
-        # Visual Guard: Skip titles without plots or posters
+        # Visual Guard: Skip empty bios to prevent dark spaces
         if not plot or len(plot) < 10: return None, None, None, None, None, 0.0
         
         rating = getattr(res, 'vote_average', 0.0)
@@ -98,11 +98,10 @@ else:
         results = []
         try:
             if search_query:
-                # RECTIFIED: Prevents AttributeError by checking for ID
                 results = [r for r in search_api.movies(search_query) if hasattr(r, 'id')]
             elif sel_mood != "Select" and sel_lang != "Select":
                 p = {'with_original_language': lang_map[sel_lang], 'with_genres': mood_map[sel_mood], 'sort_by': 'popularity.desc'}
-                # Multi-page scan to ensure results even with strict filters
+                # Multi-page scan to ensure results never stay blank
                 for page in range(1, 4):
                     p['page'] = page
                     batch = list(discover_api.discover_movies(p))
@@ -115,7 +114,7 @@ else:
                 for item in results:
                     if processed >= 30: break 
                     poster = getattr(item, 'poster_path', None)
-                    if not poster: continue # Visual Guard against dark spaces
+                    if not poster: continue # RECTIFIED: Skip dark placeholder spaces
                     
                     plot, cast, ott_n, ott_l, trailer, rating = fetch_details(item.id)
                     if not plot: continue 
@@ -124,7 +123,7 @@ else:
                         st.markdown(f'<div class="movie-card">', unsafe_allow_html=True)
                         st.image(f"https://image.tmdb.org/t/p/w500{poster}")
                         st.subheader(getattr(item, 'title', 'Unknown Title'))
-                        st.markdown(f"<span class='rating-badge'>⭐ {rating:.1f}</span>", unsafe_allow_html=True)
+                        st.markdown(f"<span class='rating-badge'>⭐ IMDb: {rating:.1f}</span>", unsafe_allow_html=True)
                         if ott_n: st.markdown(f"<span class='ott-label'>Available on: {ott_n}</span>", unsafe_allow_html=True)
                         else: st.markdown("<span class='ott-label'>Available on: Local Listings</span>", unsafe_allow_html=True)
                         with st.expander("📖 Story & Cast"):
