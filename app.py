@@ -18,7 +18,7 @@ for key in ['role', 'u_name', 'u_age', 'user_db']:
 def get_safe_session():
     session = requests.Session()
     retries = Retry(total=10, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
-    session.mount('https://', HTTPAdapter(pool_connections=50, pool_maxsize=100, max_retries=retries))
+    session.mount('https://', HTTPAdapter(pool_connections=20, pool_maxsize=100, max_retries=retries))
     return session
 
 tmdb = TMDb()
@@ -26,39 +26,35 @@ tmdb.api_key = 'a3ce43541791ff5e752a8e62ce0fcde2'
 tmdb.session = get_safe_session()
 movie_api, discover_api, search_api = Movie(), Discover(), Search()
 
-# --- 3. UI: STABLE DARK MODE ---
+# --- 3. UI: STABLE DARK MODE STYLING ---
 st.set_page_config(page_title="IRFAN CINEMATIC UNIVERSE (ICU)", layout="wide")
 
 def apply_styles():
     dark_img = "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?q=80&w=2070"
-    # RECTIFIED: CSS Syntax fix for TokenError
     st.markdown(f"""
         <style>
         .stApp {{ 
             background: linear-gradient(rgba(0,0,0,0.85), rgba(0,0,0,0.85)), url("{dark_img}"); 
-            background-size: cover; background-attachment: fixed; color: #ffffff !important; 
+            background-size: cover; 
+            background-attachment: fixed; 
+            color: #ffffff !important; 
         }}
         [data-testid="stSidebar"] {{ background: linear-gradient(180deg, #000000 0%, #2C2C2C 100%) !important; }}
-        .movie-card {{ border: 1px solid #444; padding: 15px; border-radius: 10px; background: rgba(0, 0, 0, 0.85); margin-bottom: 20px; min-height: 600px; }}
+        .movie-card {{ border: 1px solid #444; padding: 15px; border-radius: 10px; background: rgba(0, 0, 0, 0.85); margin-bottom: 20px; min-height: 550px; }}
         .play-button {{ background: #28a745 !important; color: white !important; padding: 10px; border-radius: 8px; text-decoration: none; display: block; text-align: center; font-weight: bold; margin-top: 10px; }}
-        .ott-label {{ color: #00d4ff; font-weight: bold; font-size: 1.1em; margin-bottom: 5px; display: block; }}
-        .rating-badge {{ background: #f5c518; color: #000; padding: 2px 8px; border-radius: 5px; font-weight: bold; }}
         h1, h2, h3, p, span, label, .stMarkdown {{ color: #ffffff !important; }}
         </style>
         """, unsafe_allow_html=True)
 
-# --- 4. DATA FETCHING (Rectified for Ratings, Plot, & OTT) ---
+# --- 4. DATA FETCHING ---
 @st.cache_data(ttl=3600)
 def fetch_details(m_id):
     try:
         res = movie_api.details(m_id, append_to_response="credits,watch/providers,videos")
-        plot = getattr(res, 'overview', None)
-        # Visual Guard: Skip empty bios to prevent dark spaces
-        if not plot or len(plot) < 10: return None, None, None, None, None, 0.0
-        
-        rating = getattr(res, 'vote_average', 0.0)
+        plot = getattr(res, 'overview', "Plot summary not available.")
         credits = getattr(res, 'credits', {})
-        cast = ", ".join([c['name'] for c in credits.get('cast', [])[:5]])
+        cast_list = credits.get('cast', [])
+        cast = ", ".join([c['name'] for c in cast_list[:5]]) if cast_list else "Cast N/A"
         providers = getattr(res, 'watch/providers', {}).get('results', {}).get('IN', {})
         ott_n, ott_l = None, None
         for mode in ['flatrate', 'free', 'ads']:
@@ -66,8 +62,9 @@ def fetch_details(m_id):
                 ott_n, ott_l = providers[mode][0]['provider_name'], providers.get('link')
                 break
         trailer = next((f"https://www.youtube.com/watch?v={v['key']}" for v in getattr(res, 'videos', {}).get('results', []) if v['site'] == 'YouTube'), None)
-        return plot, cast, ott_n, ott_l, trailer, rating
-    except: return None, None, None, None, None, 0.0
+        return plot, cast, ott_n, ott_l, trailer
+    except Exception:
+        return "Loading...", "Loading...", None, None, None
 
 # --- 5. MAIN APP FLOW ---
 apply_styles()
@@ -81,14 +78,20 @@ if not st.session_state.logged_in:
         st.session_state.u_name, st.session_state.u_age = u_name, u_age_input
         st.rerun()
 else:
-    if st.sidebar.button("Log Out"):
-        st.session_state.logged_in = False
-        st.rerun()
-
+    st.sidebar.title(f"👤 {st.session_state.u_name}")
     st.sidebar.header("IRS Filters")
-    mood_map = {"Happy": 35, "Sad": 18, "Adventures": 12, "Thrill": 53, "Excited": 28, "Romantic": 10749}
+    
+    # RECTIFIED: Removed TV Shows option
+    mood_map = {"Happy": 35, "Sad": 18, "Adventures": 12, "Thrill": 53, "Excited": 28}
+    if st.session_state.u_age >= 18:
+        mood_map["Romantic"] = 10749
     sel_mood = st.sidebar.selectbox("Emotion", ["Select"] + list(mood_map.keys()))
-    lang_map = {"Telugu": "te", "Hindi": "hi", "Tamil": "ta", "Malayalam": "ml", "Kannada": "kn", "English": "en"}
+
+    lang_map = {
+        "Telugu": "te", "Hindi": "hi", "Tamil": "ta", "Malayalam": "ml", "Kannada": "kn",
+        "Bengali": "bn", "Marathi": "mr", "Punjabi": "pa", "English": "en", 
+        "Korean": "ko", "Japanese": "ja", "French": "fr", "Spanish": "es", "German": "de"
+    }
     sel_lang = st.sidebar.selectbox("Language", ["Select"] + sorted(list(lang_map.keys())))
 
     st.title("🎬 IRFAN CINEMATIC UNIVERSE (ICU)")
@@ -98,41 +101,39 @@ else:
         results = []
         try:
             if search_query:
+                # RECTIFIED: Search results limited to Movies
                 results = [r for r in search_api.movies(search_query) if hasattr(r, 'id')]
             elif sel_mood != "Select" and sel_lang != "Select":
                 p = {'with_original_language': lang_map[sel_lang], 'with_genres': mood_map[sel_mood], 'sort_by': 'popularity.desc'}
-                # Multi-page scan to ensure results never stay blank
-                for page in range(1, 4):
-                    p['page'] = page
-                    batch = list(discover_api.discover_movies(p))
-                    results.extend(batch)
-                    if len(results) >= 60: break
+                p_strict = {**p, 'watch_region': 'IN', 'with_watch_monetization_types': 'flatrate|free|ads'}
+                results = list(discover_api.discover_movies(p_strict))
+                if not results:
+                    st.info("Showing popular global movies (Limited local OTT links found).")
+                    results = list(discover_api.discover_movies(p))
 
             if results:
                 cols = st.columns(3)
-                processed = 0
-                for item in results:
-                    if processed >= 30: break 
-                    poster = getattr(item, 'poster_path', None)
-                    if not poster: continue # RECTIFIED: Skip dark placeholder spaces
+                for i, item in enumerate(results[:15]):
+                    m_title = getattr(item, 'title', 'Unknown Title')
+                    m_id = getattr(item, 'id', None)
+                    if not m_id: continue
                     
-                    plot, cast, ott_n, ott_l, trailer, rating = fetch_details(item.id)
-                    if not plot: continue 
-
-                    with cols[processed % 3]:
+                    # RECTIFIED: Details fetch updated to skip TV Shows
+                    plot, cast, ott_n, ott_l, trailer = fetch_details(m_id)
+                    with cols[i % 3]:
                         st.markdown(f'<div class="movie-card">', unsafe_allow_html=True)
-                        st.image(f"https://image.tmdb.org/t/p/w500{poster}")
-                        st.subheader(getattr(item, 'title', 'Unknown Title'))
-                        st.markdown(f"<span class='rating-badge'>⭐ IMDb: {rating:.1f}</span>", unsafe_allow_html=True)
-                        if ott_n: st.markdown(f"<span class='ott-label'>Available on: {ott_n}</span>", unsafe_allow_html=True)
-                        else: st.markdown("<span class='ott-label'>Available on: Local Listings</span>", unsafe_allow_html=True)
+                        st.image(f"https://image.tmdb.org/t/p/w500{getattr(item, 'poster_path', '')}")
+                        st.subheader(m_title)
+                        
+                        if ott_n:
+                            st.markdown(f"**Available on: {ott_n}**")
+
                         with st.expander("📖 Story & Cast"):
                             st.write(f"**Plot:** {plot}")
                             st.write(f"**Cast:** {cast}")
+                        
                         if trailer: st.video(trailer)
                         if ott_l: st.markdown(f'<a href="{ott_l}" target="_blank" class="play-button">▶️ WATCH NOW</a>', unsafe_allow_html=True)
                         st.markdown('</div>', unsafe_allow_html=True)
-                        processed += 1
-            else:
-                st.warning("No recommendations found. Try different filters.")
-        except Exception: st.error("API Connection unstable. Please refresh.")
+        except Exception:
+            st.error("Connection unstable. Please refresh.")
