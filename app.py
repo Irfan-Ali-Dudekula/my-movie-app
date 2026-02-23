@@ -17,8 +17,9 @@ for key in ['role', 'u_name', 'u_age', 'user_db']:
 @st.cache_resource
 def get_safe_session():
     session = requests.Session()
+    # Optimized to prevent "Too many open files" error
     retries = Retry(total=10, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
-    session.mount('https://', HTTPAdapter(pool_connections=20, pool_maxsize=100, max_retries=retries))
+    session.mount('https://', HTTPAdapter(pool_connections=50, pool_maxsize=100, max_retries=retries))
     return session
 
 tmdb = TMDb()
@@ -45,26 +46,23 @@ def apply_styles():
         </style>
         """, unsafe_allow_html=True)
 
-# --- 4. DATA FETCHING (Rectified for Cast and Plot) ---
+# --- 4. DATA FETCHING ---
 @st.cache_data(ttl=3600)
 def fetch_details(m_id):
     try:
         res = movie_api.details(m_id, append_to_response="credits,watch/providers,videos")
         plot = getattr(res, 'overview', None)
-        
-        # RECTIFIED: Skip movies without enough info to avoid "dark screens"
+        # Visual Guard: Skip titles without plots or posters
         if not plot or len(plot) < 10: return None, None, None, None, None
         
         credits = getattr(res, 'credits', {})
         cast = ", ".join([c['name'] for c in credits.get('cast', [])[:5]])
-        
         providers = getattr(res, 'watch/providers', {}).get('results', {}).get('IN', {})
         ott_n, ott_l = None, None
         for mode in ['flatrate', 'free', 'ads']:
             if mode in providers:
                 ott_n, ott_l = providers[mode][0]['provider_name'], providers.get('link')
                 break
-        
         trailer = next((f"https://www.youtube.com/watch?v={v['key']}" for v in getattr(res, 'videos', {}).get('results', []) if v['site'] == 'YouTube'), None)
         return plot, cast, ott_n, ott_l, trailer
     except: return None, None, None, None, None
@@ -81,7 +79,10 @@ if not st.session_state.logged_in:
         st.session_state.u_name, st.session_state.u_age = u_name, u_age_input
         st.rerun()
 else:
-    st.sidebar.title(f"👤 {st.session_state.u_name}")
+    if st.sidebar.button("Log Out"):
+        st.session_state.logged_in = False
+        st.rerun()
+
     st.sidebar.header("IRS Filters")
     mood_map = {"Happy": 35, "Sad": 18, "Adventures": 12, "Thrill": 53, "Excited": 28, "Romantic": 10749}
     sel_mood = st.sidebar.selectbox("Emotion", ["Select"] + list(mood_map.keys()))
@@ -95,6 +96,7 @@ else:
         results = []
         try:
             if search_query:
+                # RECTIFIED: Prevents AttributeError by checking for ID
                 results = [r for r in search_api.movies(search_query) if hasattr(r, 'id')]
             elif sel_mood != "Select" and sel_lang != "Select":
                 p = {'with_original_language': lang_map[sel_lang], 'with_genres': mood_map[sel_mood], 'sort_by': 'popularity.desc'}
@@ -111,7 +113,7 @@ else:
                 for item in results:
                     if processed >= 30: break 
                     poster = getattr(item, 'poster_path', None)
-                    if not poster: continue # RECTIFIED: Skips Dark Screens
+                    if not poster: continue # Visual Guard against dark spaces
                     
                     plot, cast, ott_n, ott_l, trailer = fetch_details(item.id)
                     if not plot: continue 
@@ -120,19 +122,15 @@ else:
                         st.markdown(f'<div class="movie-card">', unsafe_allow_html=True)
                         st.image(f"https://image.tmdb.org/t/p/w500{poster}")
                         st.subheader(getattr(item, 'title', 'Unknown Title'))
-                        
                         if ott_n: st.markdown(f"<span class='ott-label'>Available on: {ott_n}</span>", unsafe_allow_html=True)
                         else: st.markdown("<span class='ott-label'>Available on: Local Listings</span>", unsafe_allow_html=True)
-
                         with st.expander("📖 Story & Cast"):
                             st.write(f"**Plot:** {plot}")
                             st.write(f"**Cast:** {cast}")
-                        
                         if trailer: st.video(trailer)
                         if ott_l: st.markdown(f'<a href="{ott_l}" target="_blank" class="play-button">▶️ WATCH NOW</a>', unsafe_allow_html=True)
                         st.markdown('</div>', unsafe_allow_html=True)
                         processed += 1
             else:
-                st.warning("No recommendations found. Try adjusting your Emotion or Language filters.")
-        except Exception:
-            st.error("Connection unstable. Please refresh.")
+                st.warning("No recommendations found. Try different filters.")
+        except Exception: st.error("API Connection unstable. Please refresh.")
